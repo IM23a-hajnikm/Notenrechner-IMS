@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   calculateRequiredGrade,
   calculateSemesterGrade,
@@ -49,8 +49,22 @@ const GRADE_TYPES: { value: GradeType; label: string }[] = [
   { value: "other", label: "Andere" },
 ];
 
+type AccountView = "dashboard" | "subjects" | "terms" | "grades";
+type CreateSubjectInput = Parameters<typeof createSubject>[0];
+type CreateTermInput = Parameters<typeof createTerm>[0];
+type CreateGradeInput = Parameters<typeof createGrade>[0];
+
+const ACCOUNT_VIEWS: { value: AccountView; label: string; description: string }[] = [
+  { value: "dashboard", label: "Dashboard", description: "Ueberblick" },
+  { value: "subjects", label: "Faecher", description: "Struktur" },
+  { value: "terms", label: "Semester", description: "Zeitraeume" },
+  { value: "grades", label: "Noten", description: "Erfassung" },
+];
+
 export function AccountDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentView = parseAccountView(searchParams.get("view"));
   const [snapshot, setSnapshot] = useState<AccountSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,6 +120,18 @@ export function AccountDashboard() {
       setError(caught instanceof Error ? caught.message : "Logout fehlgeschlagen.");
       setIsMutating(false);
     }
+  }
+
+  function setCurrentView(nextView: AccountView) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextView === "dashboard") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/account?${query}` : "/account");
   }
 
   if (isLoading) {
@@ -180,43 +206,197 @@ export function AccountDashboard() {
 
         {error ? <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
-        <AccountSummary snapshot={snapshot} />
+        <AccountViewNav currentView={currentView} onChange={setCurrentView} snapshot={snapshot} />
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-          <div className="grid gap-4">
-            <SubjectForm disabled={isMutating} onSubmit={(input) => mutate(() => createSubject(input))} />
-            <TermForm disabled={isMutating} onSubmit={(input) => mutate(() => createTerm(input))} />
-            <GradeForm
-              disabled={isMutating}
-              subjects={snapshot.subjects.filter((subject) => !subject.archived)}
-              terms={snapshot.terms}
-              onSubmit={(input) => mutate(() => createGrade(input))}
-            />
-          </div>
+        {currentView === "dashboard" ? (
+          <DashboardView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateGrade={(input) => mutate(() => createGrade(input))}
+          />
+        ) : null}
 
-          <div className="grid gap-4">
-            <SubjectsPanel
-              subjects={snapshot.subjects}
-              grades={snapshot.grades}
-              disabled={isMutating}
-              onArchive={(subject) => mutate(() => updateSubject(subject.id, { archived: !subject.archived }))}
-              onDelete={(subject) => mutate(() => deleteSubject(subject.id))}
-            />
-            <TermsPanel
-              terms={snapshot.terms}
-              disabled={isMutating}
-              onToggleActive={(term) => mutate(() => updateTerm(term.id, { isActive: !term.isActive }))}
-              onDelete={(term) => mutate(() => deleteTerm(term.id))}
-            />
-            <GradesPanel
-              grades={snapshot.grades}
-              disabled={isMutating}
-              onDelete={(grade) => mutate(() => deleteGrade(grade.id))}
-            />
-          </div>
-        </section>
+        {currentView === "subjects" ? (
+          <SubjectsView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onArchive={(subject) => mutate(() => updateSubject(subject.id, { archived: !subject.archived }))}
+            onCreateSubject={(input) => mutate(() => createSubject(input))}
+            onDelete={(subject) => mutate(() => deleteSubject(subject.id))}
+          />
+        ) : null}
+
+        {currentView === "terms" ? (
+          <TermsView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateTerm={(input) => mutate(() => createTerm(input))}
+            onDelete={(term) => mutate(() => deleteTerm(term.id))}
+            onToggleActive={(term) => mutate(() => updateTerm(term.id, { isActive: !term.isActive }))}
+          />
+        ) : null}
+
+        {currentView === "grades" ? (
+          <GradesView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateGrade={(input) => mutate(() => createGrade(input))}
+            onDelete={(grade) => mutate(() => deleteGrade(grade.id))}
+          />
+        ) : null}
       </div>
     </main>
+  );
+}
+
+function AccountViewNav({
+  currentView,
+  onChange,
+  snapshot,
+}: {
+  currentView: AccountView;
+  onChange: (view: AccountView) => void;
+  snapshot: AccountSnapshot;
+}) {
+  const counts: Record<AccountView, string> = {
+    dashboard: String(snapshot.grades.length),
+    subjects: String(snapshot.subjects.filter((subject) => !subject.archived).length),
+    terms: String(snapshot.terms.length),
+    grades: String(snapshot.grades.length),
+  };
+
+  return (
+    <section className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {ACCOUNT_VIEWS.map((view) => {
+        const isActive = currentView === view.value;
+
+        return (
+          <button
+            key={view.value}
+            onClick={() => onChange(view.value)}
+            className={`rounded-lg border px-4 py-3 text-left transition ${
+              isActive
+                ? "border-alpine bg-alpine text-white shadow-soft"
+                : "border-black/10 bg-white text-ink hover:border-black/25"
+            }`}
+          >
+            <span className="flex items-center justify-between gap-3">
+              <span className="font-semibold">{view.label}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  isActive ? "bg-white/20 text-white" : "bg-black/5 text-black/60"
+                }`}
+              >
+                {counts[view.value]}
+              </span>
+            </span>
+            <span className={`mt-1 block text-sm ${isActive ? "text-white/80" : "text-black/55"}`}>
+              {view.description}
+            </span>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
+function DashboardView({
+  disabled,
+  snapshot,
+  onCreateGrade,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateGrade: (input: CreateGradeInput) => void;
+}) {
+  return (
+    <>
+      <AccountSummary snapshot={snapshot} />
+      <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+        <GradeForm
+          disabled={disabled}
+          subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+          terms={snapshot.terms}
+          onSubmit={onCreateGrade}
+        />
+        <div className="grid gap-4">
+          <RequiredGradeShortcut snapshot={snapshot} />
+          <RecentGrades grades={snapshot.grades} />
+        </div>
+      </section>
+    </>
+  );
+}
+
+function SubjectsView({
+  disabled,
+  snapshot,
+  onArchive,
+  onCreateSubject,
+  onDelete,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onArchive: (subject: AccountSubject) => void;
+  onCreateSubject: (input: CreateSubjectInput) => void;
+  onDelete: (subject: AccountSubject) => void;
+}) {
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <SubjectForm disabled={disabled} onSubmit={onCreateSubject} />
+      <SubjectsPanel
+        subjects={snapshot.subjects}
+        grades={snapshot.grades}
+        disabled={disabled}
+        onArchive={onArchive}
+        onDelete={onDelete}
+      />
+    </section>
+  );
+}
+
+function TermsView({
+  disabled,
+  snapshot,
+  onCreateTerm,
+  onDelete,
+  onToggleActive,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateTerm: (input: CreateTermInput) => void;
+  onDelete: (term: AccountTerm) => void;
+  onToggleActive: (term: AccountTerm) => void;
+}) {
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <TermForm disabled={disabled} onSubmit={onCreateTerm} />
+      <TermsPanel terms={snapshot.terms} disabled={disabled} onDelete={onDelete} onToggleActive={onToggleActive} />
+    </section>
+  );
+}
+
+function GradesView({
+  disabled,
+  snapshot,
+  onCreateGrade,
+  onDelete,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateGrade: (input: CreateGradeInput) => void;
+  onDelete: (grade: AccountGrade) => void;
+}) {
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <GradeForm
+        disabled={disabled}
+        subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+        terms={snapshot.terms}
+        onSubmit={onCreateGrade}
+      />
+      <GradesPanel grades={snapshot.grades} disabled={disabled} onDelete={onDelete} />
+    </section>
   );
 }
 
@@ -238,6 +418,70 @@ function AccountSummary({ snapshot }: { snapshot: AccountSnapshot }) {
       <Metric label="Bestes Fach" value={bestSubject?.subject.shortName || bestSubject?.subject.name || "-"} />
       <Metric label="Kritisches Fach" value={worstSubject?.subject.shortName || worstSubject?.subject.name || "-"} />
       <Metric label="Aktives Semester" value={activeTerm?.name ?? "-"} />
+    </section>
+  );
+}
+
+function RequiredGradeShortcut({ snapshot }: { snapshot: AccountSnapshot }) {
+  const items = snapshot.grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) }));
+  const exactAverage = calculateWeightedAverage(items);
+  const semesterGrade = calculateSemesterGrade(items);
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Benoetigte Note planen</h2>
+          <p className="text-sm text-black/60">Starte mit deinem aktuellen Account-Schnitt.</p>
+        </div>
+        <Link
+          href="/calculators/required-grade"
+          className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
+        >
+          Rechner oeffnen
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-md border border-black/10 p-4">
+          <p className="text-sm text-black/60">Aktueller Schnitt</p>
+          <p className="mt-2 text-2xl font-semibold text-ink">
+            {exactAverage === null ? "-" : exactAverage.toFixed(2)}
+          </p>
+        </div>
+        <div className="rounded-md border border-black/10 p-4">
+          <p className="text-sm text-black/60">Gerundete Note</p>
+          <p className="mt-2 text-2xl font-semibold text-ink">
+            {semesterGrade === null ? "-" : semesterGrade.toFixed(1)}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentGrades({ grades }: { grades: AccountGrade[] }) {
+  const recentGrades = [...grades].sort(byGradeDateDesc).slice(0, 5);
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <h2 className="text-lg font-semibold text-ink">Letzte Noten</h2>
+      <div className="mt-3 overflow-hidden rounded-md border border-black/10">
+        {recentGrades.map((grade) => (
+          <div
+            key={grade.id}
+            className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 sm:grid-cols-[1fr_auto]"
+          >
+            <div>
+              <p className="font-semibold text-ink">{grade.title}</p>
+              <p className="text-sm text-black/60">
+                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / {formatDate(grade.date) ?? "ohne Datum"}
+              </p>
+            </div>
+            <p className="text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
+          </div>
+        ))}
+        {recentGrades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
+      </div>
     </section>
   );
 }
@@ -813,6 +1057,15 @@ function byAverageAsc(left: { exactAverage: number | null }, right: { exactAvera
   return (left.exactAverage ?? Infinity) - (right.exactAverage ?? Infinity);
 }
 
+function byGradeDateDesc(left: AccountGrade, right: AccountGrade) {
+  return dateSortValue(right.date) - dateSortValue(left.date);
+}
+
+function dateSortValue(value: string | null): number {
+  if (!value) return 0;
+  return new Date(value).getTime();
+}
+
 function gradeValue(grade: AccountGrade): number {
   return Number(grade.gradeValue);
 }
@@ -828,4 +1081,9 @@ function formatDate(value: string | null): string | null {
 
 function subjectTypeLabel(value: SubjectType): string {
   return SUBJECT_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function parseAccountView(value: string | null): AccountView {
+  if (value === "subjects" || value === "terms" || value === "grades") return value;
+  return "dashboard";
 }
