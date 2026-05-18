@@ -8,6 +8,12 @@
     "apps/api",
     "apps/web"
   ],
+  "overrides": {
+    "next@16.2.6": {
+      "postcss": "8.5.14"
+    },
+    "postcss": "8.5.14"
+  },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev": "npm -w @notenrechner/shared run build && concurrently \"npm -w @notenrechner/api run dev\" \"npm -w @notenrechner/web run dev\"",
