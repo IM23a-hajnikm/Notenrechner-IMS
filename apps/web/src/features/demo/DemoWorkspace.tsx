@@ -2,15 +2,9 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  GradeType,
-  SubjectType,
-  calculateRequiredGrade,
-  calculateSemesterGrade,
-  calculateWeightedAverage,
-  minimumExactAverageForRoundedHalf,
-} from "@notenrechner/shared";
+import { GradeType, SubjectType, calculateSemesterGrade, calculateWeightedAverage } from "@notenrechner/shared";
 
+import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 import { DemoGrade, DemoState, DemoSubject, DemoTerm, demoSeed } from "./demo-data";
@@ -146,8 +140,6 @@ export function DemoWorkspace() {
   const [editingTermId, setEditingTermId] = useState<string | null>(null);
   const [gradeDraft, setGradeDraft] = useState<GradeDraft>(emptyGradeDraft);
   const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
-  const [targetRounded, setTargetRounded] = useState("4.5");
-  const [upcomingWeight, setUpcomingWeight] = useState("1");
   const [resetArmed, setResetArmed] = useState(false);
 
   useEffect(() => {
@@ -178,18 +170,6 @@ export function DemoWorkspace() {
   const subjectSummaries = useMemo(() => buildSubjectSummaries(state.subjects, state.grades), [state]);
   const activeTerm = state.terms.find((term) => term.isActive);
   const certificationStatus = useMemo(() => deriveSavedCertificationStatus(state.subjects, state.grades), [state]);
-  const requiredGrade = useMemo(() => {
-    const parsedTarget = Number(targetRounded);
-    const parsedUpcomingWeight = Number(upcomingWeight);
-
-    if (!Number.isFinite(parsedTarget) || !Number.isFinite(parsedUpcomingWeight)) return null;
-
-    try {
-      return calculateRequiredGrade(allItems, parsedUpcomingWeight, minimumExactAverageForRoundedHalf(parsedTarget));
-    } catch {
-      return null;
-    }
-  }, [allItems, targetRounded, upcomingWeight]);
 
   function saveSubject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -493,15 +473,10 @@ export function DemoWorkspace() {
             />
             <GradesPanel
               grades={state.grades}
-              requiredGrade={requiredGrade}
               subjects={state.subjects}
-              targetRounded={targetRounded}
               terms={state.terms}
-              upcomingWeight={upcomingWeight}
               onDelete={deleteGrade}
               onEdit={startEditGrade}
-              onTargetRoundedChange={setTargetRounded}
-              onUpcomingWeightChange={setUpcomingWeight}
             />
           </div>
         </section>
@@ -914,26 +889,16 @@ function TermsPanel({
 
 function GradesPanel({
   grades,
-  requiredGrade,
   subjects,
-  targetRounded,
   terms,
-  upcomingWeight,
   onDelete,
   onEdit,
-  onTargetRoundedChange,
-  onUpcomingWeightChange,
 }: {
   grades: DemoGrade[];
-  requiredGrade: number | null;
   subjects: DemoSubject[];
-  targetRounded: string;
   terms: DemoTerm[];
-  upcomingWeight: string;
   onDelete: (gradeId: string) => void;
   onEdit: (grade: DemoGrade) => void;
-  onTargetRoundedChange: (value: string) => void;
-  onUpcomingWeightChange: (value: string) => void;
 }) {
   const [filters, setFilters] = useState<GradeFilters>(DEFAULT_GRADE_FILTERS);
   const filteredGrades = useMemo(
@@ -947,36 +912,22 @@ function GradesPanel({
 
   return (
     <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ink">Noten</h2>
           <p className="text-sm text-black/60">Lokale Demo-Noten mit Fach und Semester.</p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="grid gap-1 text-xs font-medium text-black/60">
-            Ziel
-            <input
-              value={targetRounded}
-              onChange={(event) => onTargetRoundedChange(event.target.value)}
-              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-black/60">
-            Gewicht
-            <input
-              value={upcomingWeight}
-              onChange={(event) => onUpcomingWeightChange(event.target.value)}
-              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
       </div>
-      <p className="mt-3 text-sm text-black/60">
-        Benoetigte Note:{" "}
-        <span className="text-lg font-semibold text-ink">
-          {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
-        </span>
-      </p>
+      <div className="mt-4">
+        <ContextualRequiredGradePlanner
+          description="Berechnet die naechste Note nur aus dem gewaehlten Demo-Fach und Semester."
+          grades={buildDemoRequiredGradeContextGrades(grades)}
+          subjects={buildDemoRequiredGradeSubjectOptions(subjects)}
+          terms={buildDemoRequiredGradeTermOptions(terms)}
+          title="Kontext-Rechner"
+          variant="embedded"
+        />
+      </div>
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1.6fr)_repeat(3,minmax(140px,1fr))]">
         <label className="grid gap-1 text-xs font-medium text-black/60">
           Suche
@@ -1270,6 +1221,35 @@ function buildDemoActiveFilterLabels(filters: GradeFilters, subjects: DemoSubjec
   if (sort && filters.sort !== DEFAULT_GRADE_FILTERS.sort) labels.push(`Sort: ${sort.label}`);
 
   return labels;
+}
+
+function buildDemoRequiredGradeSubjectOptions(subjects: DemoSubject[]) {
+  return subjects
+    .filter((subject) => !subject.archived)
+    .map((subject) => ({
+      id: subject.id,
+      label: subject.shortName ? `${subject.shortName} - ${subject.name}` : subject.name,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function buildDemoRequiredGradeTermOptions(terms: DemoTerm[]) {
+  return terms
+    .map((term) => ({
+      id: term.id,
+      label: term.isActive ? `${term.name} (aktiv)` : term.name,
+      isActive: term.isActive,
+    }))
+    .sort((left, right) => Number(right.isActive) - Number(left.isActive) || left.label.localeCompare(right.label));
+}
+
+function buildDemoRequiredGradeContextGrades(grades: DemoGrade[]) {
+  return grades.map((grade) => ({
+    subjectId: grade.subjectId,
+    termId: grade.termId,
+    value: grade.value,
+    weight: grade.weight,
+  }));
 }
 
 function demoSubjectLabel(grade: DemoGrade, subjects: DemoSubject[]): string {
