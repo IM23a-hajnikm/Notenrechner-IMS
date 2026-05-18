@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: notenrechner-api
+    runtime: node
+    region: frankfurt
+    buildCommand: npm ci && npm run prisma:generate && npm run build:api
+    preDeployCommand: npm run prisma:deploy
+    startCommand: npm -w @notenrechner/api run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WEB_ORIGIN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SAME_SITE
+        value: none

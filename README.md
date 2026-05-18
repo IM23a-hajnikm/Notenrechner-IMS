@@ -73,6 +73,8 @@ The MVP must support two modes:
 
 Local frontend API calls use `NEXT_PUBLIC_API_URL`; by default this points to `http://localhost:3001`.
 
+Production deployment variables, CORS, cookie settings, migrations, and smoke tests are documented in [docs/deployment.md](docs/deployment.md).
+
 Calculator routes:
 
 - `/calculators/required-grade`
@@ -89,6 +91,7 @@ Auth:
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /auth/refresh`
 - `POST /auth/logout`
 - `GET /auth/me`
 

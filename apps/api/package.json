@@ -6,6 +6,7 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "lint": "eslint \"src/**/*.ts\"",
+    "prebuild": "npm -w @notenrechner/shared run build",
     "start": "node dist/main.js",
     "test": "vitest run --exclude dist/**",
     "typecheck": "tsc -p tsconfig.json --noEmit"

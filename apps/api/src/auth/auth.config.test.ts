@@ -30,6 +30,40 @@ describe("auth config", () => {
     });
   });
 
+  it("supports custom production cookie attributes for deployed hosts", () => {
+    const config = {
+      get: vi.fn((key: string) => {
+        if (key === "NODE_ENV") return "production";
+        if (key === "COOKIE_SAME_SITE") return "none";
+        if (key === "COOKIE_DOMAIN") return ".notenrechner.ch";
+        return undefined;
+      }),
+    };
+
+    expect(getAccessTokenCookieOptions(config as never)).toMatchObject({
+      domain: ".notenrechner.ch",
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+    });
+    expect(getRefreshTokenCookieOptions(config as never)).toMatchObject({
+      domain: ".notenrechner.ch",
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+    });
+  });
+
+  it("rejects unsupported cookie SameSite values", () => {
+    const config = {
+      get: vi.fn((key: string) => (key === "COOKIE_SAME_SITE" ? "loose" : undefined)),
+    };
+
+    expect(() => getAccessTokenCookieOptions(config as never)).toThrow(
+      "COOKIE_SAME_SITE must be one of: lax, strict, none.",
+    );
+  });
+
   it("fails closed when JWT_REFRESH_SECRET is missing in production", () => {
     const config = {
       get: vi.fn((key: string) => (key === "NODE_ENV" ? "production" : undefined)),
