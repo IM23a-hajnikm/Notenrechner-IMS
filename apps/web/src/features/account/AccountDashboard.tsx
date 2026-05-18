@@ -3,12 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  calculateRequiredGrade,
-  calculateSemesterGrade,
-  calculateWeightedAverage,
-  minimumExactAverageForRoundedHalf,
-} from "@notenrechner/shared";
+import { calculateSemesterGrade, calculateWeightedAverage } from "@notenrechner/shared";
 
 import {
   AccountGrade,
@@ -29,6 +24,7 @@ import {
   updateSubject,
   updateTerm,
 } from "./api-client";
+import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 
@@ -578,6 +574,8 @@ function GradesView({
       <GradesPanel
         grades={snapshot.grades}
         disabled={disabled}
+        subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+        terms={snapshot.terms}
         onDelete={(grade) => void deleteGrade(grade)}
         onEdit={setEditingGrade}
       />
@@ -608,39 +606,13 @@ function AccountSummary({ snapshot }: { snapshot: AccountSnapshot }) {
 }
 
 function RequiredGradeShortcut({ snapshot }: { snapshot: AccountSnapshot }) {
-  const items = snapshot.grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) }));
-  const exactAverage = calculateWeightedAverage(items);
-  const semesterGrade = calculateSemesterGrade(items);
-
   return (
-    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-ink">Benoetigte Note planen</h2>
-          <p className="text-sm text-black/60">Starte mit deinem aktuellen Account-Schnitt.</p>
-        </div>
-        <Link
-          href="/calculators/required-grade"
-          className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
-        >
-          Rechner oeffnen
-        </Link>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-md border border-black/10 p-4">
-          <p className="text-sm text-black/60">Aktueller Schnitt</p>
-          <p className="mt-2 text-2xl font-semibold text-ink">
-            {exactAverage === null ? "-" : exactAverage.toFixed(2)}
-          </p>
-        </div>
-        <div className="rounded-md border border-black/10 p-4">
-          <p className="text-sm text-black/60">Gerundete Note</p>
-          <p className="mt-2 text-2xl font-semibold text-ink">
-            {semesterGrade === null ? "-" : semesterGrade.toFixed(1)}
-          </p>
-        </div>
-      </div>
-    </section>
+    <ContextualRequiredGradePlanner
+      description="Waehle Fach und Semester, um die naechste Pruefung konkret zu planen."
+      grades={buildAccountRequiredGradeContextGrades(snapshot.grades)}
+      subjects={buildAccountRequiredGradeSubjectOptions(snapshot.subjects)}
+      terms={buildAccountRequiredGradeTermOptions(snapshot.terms)}
+    />
   );
 }
 
@@ -1216,16 +1188,18 @@ function TermsPanel({
 function GradesPanel({
   grades,
   disabled,
+  subjects,
+  terms,
   onDelete,
   onEdit,
 }: {
   grades: AccountGrade[];
   disabled: boolean;
+  subjects: AccountSubject[];
+  terms: AccountTerm[];
   onDelete: (grade: AccountGrade) => void;
   onEdit: (grade: AccountGrade) => void;
 }) {
-  const [targetRounded, setTargetRounded] = useState("4.5");
-  const [upcomingWeight, setUpcomingWeight] = useState("1");
   const [filters, setFilters] = useState<GradeFilters>(DEFAULT_GRADE_FILTERS);
   const subjectOptions = useMemo(() => buildAccountSubjectFilterOptions(grades), [grades]);
   const termOptions = useMemo(() => buildAccountTermFilterOptions(grades), [grades]);
@@ -1234,54 +1208,25 @@ function GradesPanel({
     () => buildAccountActiveFilterLabels(filters, subjectOptions, termOptions),
     [filters, subjectOptions, termOptions],
   );
-  const items = useMemo(
-    () => grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) })),
-    [grades],
-  );
-  const requiredGrade = useMemo(() => {
-    const parsedTarget = Number(targetRounded);
-    const parsedUpcomingWeight = Number(upcomingWeight);
-    if (!Number.isFinite(parsedTarget) || !Number.isFinite(parsedUpcomingWeight)) return null;
-
-    try {
-      return calculateRequiredGrade(items, parsedUpcomingWeight, minimumExactAverageForRoundedHalf(parsedTarget));
-    } catch {
-      return null;
-    }
-  }, [items, targetRounded, upcomingWeight]);
 
   return (
     <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ink">Noten</h2>
           <p className="text-sm text-black/60">Persistente Daten aus dem Account.</p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="grid gap-1 text-xs font-medium text-black/60">
-            Ziel
-            <input
-              value={targetRounded}
-              onChange={(event) => setTargetRounded(event.target.value)}
-              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-medium text-black/60">
-            Gewicht
-            <input
-              value={upcomingWeight}
-              onChange={(event) => setUpcomingWeight(event.target.value)}
-              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
       </div>
-      <p className="mt-3 text-sm text-black/60">
-        Benoetigte Note:{" "}
-        <span className="text-lg font-semibold text-ink">
-          {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
-        </span>
-      </p>
+      <div className="mt-4">
+        <ContextualRequiredGradePlanner
+          description="Plant die naechste Note nur aus dem gewaehlten Fach und Semester."
+          grades={buildAccountRequiredGradeContextGrades(grades)}
+          subjects={buildAccountRequiredGradeSubjectOptions(subjects)}
+          terms={buildAccountRequiredGradeTermOptions(terms)}
+          title="Kontext-Rechner"
+          variant="embedded"
+        />
+      </div>
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1.6fr)_repeat(3,minmax(140px,1fr))]">
         <label className="grid gap-1 text-xs font-medium text-black/60">
           Suche
@@ -1560,6 +1505,35 @@ function buildAccountTermFilterOptions(grades: AccountGrade[]) {
   return Array.from(terms, ([id, label]) => ({ id, label })).sort((left, right) =>
     left.label.localeCompare(right.label),
   );
+}
+
+function buildAccountRequiredGradeSubjectOptions(subjects: AccountSubject[]) {
+  return subjects
+    .filter((subject) => !subject.archived)
+    .map((subject) => ({
+      id: subject.id,
+      label: subject.shortName ? `${subject.shortName} - ${subject.name}` : subject.name,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function buildAccountRequiredGradeTermOptions(terms: AccountTerm[]) {
+  return terms
+    .map((term) => ({
+      id: term.id,
+      label: term.isActive ? `${term.name} (aktiv)` : term.name,
+      isActive: term.isActive,
+    }))
+    .sort((left, right) => Number(right.isActive) - Number(left.isActive) || left.label.localeCompare(right.label));
+}
+
+function buildAccountRequiredGradeContextGrades(grades: AccountGrade[]) {
+  return grades.map((grade) => ({
+    subjectId: grade.subjectId,
+    termId: grade.termId,
+    value: gradeValue(grade),
+    weight: gradeWeight(grade),
+  }));
 }
 
 function buildAccountActiveFilterLabels(
