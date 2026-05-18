@@ -7,7 +7,7 @@
     "dev": "nest start --watch",
     "lint": "eslint \"src/**/*.ts\"",
     "start": "node dist/main.js",
-    "test": "vitest run",
+    "test": "vitest run --exclude dist/**",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

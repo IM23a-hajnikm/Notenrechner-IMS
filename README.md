@@ -56,6 +56,21 @@ npm test
 npm run build
 ```
 
+## Continuous Integration
+
+Pull requests and pushes to `master` or `main` run the GitHub Actions quality gate in `.github/workflows/quality.yml`.
+
+The workflow uses Node.js 20 on `ubuntu-latest`, installs dependencies with `npm ci`, generates the Prisma client, validates `prisma/schema.prisma` without a live database, then runs:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+The CI `DATABASE_URL` is a placeholder used for Prisma schema validation only. Deployment environments still need real secrets and database credentials.
+
 Validate the Prisma schema without requiring a running database:
 
 ```bash
