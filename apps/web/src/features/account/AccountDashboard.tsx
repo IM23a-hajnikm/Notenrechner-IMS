@@ -5,10 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   calculateRequiredGrade,
+  calculateBmsResult,
+  calculateEfzResult,
   calculateSemesterGrade,
   calculateWeightedAverage,
   minimumExactAverageForRoundedHalf,
 } from "@notenrechner/shared";
+import type { BmsSubjectInput } from "@notenrechner/shared";
 
 import {
   AccountGrade,
@@ -29,6 +32,7 @@ import {
   updateSubject,
   updateTerm,
 } from "./api-client";
+import { formatGrade, parseNumberList, parseOptionalGrade, statusLabel } from "../calculators/calculator-utils";
 
 const DEFAULT_SUBJECT_COLOR = "#1f7a68";
 
@@ -109,6 +113,13 @@ type GradeFilters = {
   sort: GradeSort;
 };
 
+type SavedProgramConfig = {
+  bmsExamGrades: Record<string, string>;
+  bmsIdpaGrades: Record<string, string>;
+  bmsIdafGrades: Record<string, string>;
+  efzIpaGrade: string;
+};
+
 const ACCOUNT_VIEWS: { value: AccountView; label: string; description: string }[] = [
   { value: "dashboard", label: "Dashboard", description: "Ueberblick" },
   { value: "subjects", label: "Faecher", description: "Struktur" },
@@ -141,6 +152,27 @@ const GRADE_SORTS: { value: GradeSort; label: string }[] = [
   { value: "weight-desc", label: "Gewicht hoch zuerst" },
   { value: "weight-asc", label: "Gewicht tief zuerst" },
 ];
+
+const BMS_FAILURE_LABELS: Record<string, string> = {
+  incomplete: "BMS-Daten sind noch unvollstaendig.",
+  not_exactly_nine_fachnoten: "BMS braucht genau 9 Fachnoten.",
+  overall_average_below_4: "Gesamtnote liegt unter 4.0.",
+  too_many_insufficient_fachnoten: "Mehr als zwei Fachnoten sind unter 4.0.",
+  total_deviation_above_2: "Die Abweichung unter 4.0 ist groesser als 2.0.",
+};
+
+const EFZ_FAILURE_LABELS: Record<string, string> = {
+  incomplete: "EFZ braucht Schulmodule, UeK-Module und IPA.",
+  erfahrungsnote_below_4: "Die Erfahrungsnote liegt unter 4.0.",
+  ipa_below_4: "Die IPA liegt unter 4.0.",
+};
+
+const EMPTY_PROGRAM_CONFIG: SavedProgramConfig = {
+  bmsExamGrades: {},
+  bmsIdpaGrades: {},
+  bmsIdafGrades: {},
+  efzIpaGrade: "",
+};
 
 export function AccountDashboard() {
   const router = useRouter();
@@ -398,6 +430,7 @@ function DashboardView({
   return (
     <>
       <AccountSummary snapshot={snapshot} />
+      <SavedProgramStatus snapshot={snapshot} />
       <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
         <GradeForm
           disabled={disabled}
@@ -596,6 +629,159 @@ function AccountSummary({ snapshot }: { snapshot: AccountSnapshot }) {
       <Metric label="Kritisches Fach" value={worstSubject?.subject.shortName || worstSubject?.subject.name || "-"} />
       <Metric label="Aktives Semester" value={activeTerm?.name ?? "-"} />
     </section>
+  );
+}
+
+function SavedProgramStatus({ snapshot }: { snapshot: AccountSnapshot }) {
+  const [config, setConfig] = useState<SavedProgramConfig>(EMPTY_PROGRAM_CONFIG);
+  const bmsConfig = useMemo(() => buildBmsStatus(snapshot, config), [config, snapshot]);
+  const efzConfig = useMemo(() => buildEfzStatus(snapshot, config), [config, snapshot]);
+
+  function updateBmsExamGrade(subjectId: string, value: string) {
+    setConfig((current) => ({
+      ...current,
+      bmsExamGrades: { ...current.bmsExamGrades, [subjectId]: value },
+    }));
+  }
+
+  function updateBmsIdpaGrade(subjectId: string, value: string) {
+    setConfig((current) => ({
+      ...current,
+      bmsIdpaGrades: { ...current.bmsIdpaGrades, [subjectId]: value },
+    }));
+  }
+
+  function updateBmsIdafGrades(subjectId: string, value: string) {
+    setConfig((current) => ({
+      ...current,
+      bmsIdafGrades: { ...current.bmsIdafGrades, [subjectId]: value },
+    }));
+  }
+
+  return (
+    <section className="mt-6 grid gap-4 xl:grid-cols-2">
+      <article className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">BMS Status</h2>
+            <p className="text-sm text-black/60">{bmsConfig.summary}</p>
+          </div>
+          <Link
+            href="/calculators/bms"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm font-semibold text-ink hover:border-black/30"
+          >
+            BMS Rechner
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <StatusMetric label="Status" value={statusLabel(bmsConfig.result?.passed ?? null)} tone={bmsConfig.tone} />
+          <StatusMetric label="Gesamtnote" value={formatGrade(bmsConfig.result?.overallAverage, 1)} />
+          <StatusMetric label="Fachnoten" value={`${bmsConfig.completedSubjects}/${bmsConfig.totalSubjects || 9}`} />
+        </div>
+        {bmsConfig.errors.length > 0 ? (
+          <ul className="mt-3 grid gap-2 text-sm text-red-700">
+            {bmsConfig.errors.map((error) => (
+              <li key={error} className="rounded-md bg-red-50 px-3 py-2">
+                {error}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {bmsConfig.examSubjects.length > 0 || bmsConfig.idpaSubjects.length > 0 ? (
+          <div className="mt-4 grid gap-3">
+            {bmsConfig.examSubjects.map((subject) => (
+              <label key={subject.id} className="grid gap-1 text-xs font-medium text-black/60">
+                {subject.name} Pruefungsnote
+                <input
+                  value={config.bmsExamGrades[subject.id] ?? ""}
+                  onChange={(event) => updateBmsExamGrade(subject.id, event.target.value)}
+                  inputMode="decimal"
+                  className="rounded-md border border-black/15 px-3 py-2 text-sm"
+                />
+              </label>
+            ))}
+            {bmsConfig.idpaSubjects.map((subject) => (
+              <div key={subject.id} className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-xs font-medium text-black/60">
+                  {subject.name} IDPA
+                  <input
+                    value={config.bmsIdpaGrades[subject.id] ?? ""}
+                    onChange={(event) => updateBmsIdpaGrade(subject.id, event.target.value)}
+                    inputMode="decimal"
+                    className="rounded-md border border-black/15 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-medium text-black/60">
+                  {subject.name} IDAF Noten
+                  <input
+                    value={config.bmsIdafGrades[subject.id] ?? ""}
+                    onChange={(event) => updateBmsIdafGrades(subject.id, event.target.value)}
+                    className="rounded-md border border-black/15 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </article>
+
+      <article className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">EFZ Status</h2>
+            <p className="text-sm text-black/60">{efzConfig.summary}</p>
+          </div>
+          <Link
+            href="/calculators/efz"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm font-semibold text-ink hover:border-black/30"
+          >
+            EFZ Rechner
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <StatusMetric label="Status" value={statusLabel(efzConfig.result.passed)} tone={efzConfig.tone} />
+          <StatusMetric label="Erfahrungsnote" value={formatGrade(efzConfig.result.erfahrungsnote, 1)} />
+          <StatusMetric label="Module" value={`${efzConfig.schoolCount}/${efzConfig.uekCount}`} />
+        </div>
+        <label className="mt-4 grid gap-1 text-xs font-medium text-black/60">
+          IPA Note
+          <input
+            value={config.efzIpaGrade}
+            onChange={(event) => setConfig((current) => ({ ...current, efzIpaGrade: event.target.value }))}
+            inputMode="decimal"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        {efzConfig.errors.length > 0 ? (
+          <ul className="mt-3 grid gap-2 text-sm text-red-700">
+            {efzConfig.errors.map((error) => (
+              <li key={error} className="rounded-md bg-red-50 px-3 py-2">
+                {error}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </article>
+    </section>
+  );
+}
+
+function StatusMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "good" | "bad" | "neutral";
+}) {
+  const toneClass = tone === "good" ? "text-green-700" : tone === "bad" ? "text-red-700" : "text-ink";
+
+  return (
+    <div className="rounded-md border border-black/10 px-3 py-2">
+      <p className="text-xs text-black/50">{label}</p>
+      <p className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
+    </div>
   );
 }
 
@@ -1465,6 +1651,118 @@ function buildSubjectSummaries(subjects: AccountSubject[], grades: AccountGrade[
       exactAverage: calculateWeightedAverage(items),
       semesterGrade: calculateSemesterGrade(items),
     };
+  });
+}
+
+function buildBmsStatus(snapshot: AccountSnapshot, config: SavedProgramConfig) {
+  const bmsSubjects = snapshot.subjects.filter((subject) =>
+    ["bms_exam_subject", "bms_non_exam_subject", "bms_idpa_idaf"].includes(subject.subjectType),
+  );
+  const errors: string[] = [];
+  const inputs: BmsSubjectInput[] = [];
+
+  for (const subject of bmsSubjects) {
+    if (subject.subjectType === "bms_idpa_idaf") {
+      const idpaGrade = parseOptionalGrade(config.bmsIdpaGrades[subject.id] ?? "", `${subject.name} IDPA`);
+      const idafGrades = parseNumberList(config.bmsIdafGrades[subject.id] ?? "", `${subject.name} IDAF`);
+      if (idpaGrade.error) errors.push(idpaGrade.error);
+      if (idafGrades.error) errors.push(idafGrades.error);
+      inputs.push({
+        id: subject.id,
+        name: subject.name,
+        kind: "idpa_idaf",
+        ...(idpaGrade.value !== null ? { idpaGrade: idpaGrade.value } : {}),
+        idafGrades: idafGrades.values,
+      });
+      continue;
+    }
+
+    const semesterGrades = deriveRoundedSemesterGrades(subject, snapshot.grades);
+
+    if (subject.subjectType === "bms_non_exam_subject") {
+      inputs.push({
+        id: subject.id,
+        name: subject.name,
+        kind: "non_exam",
+        semesterGrades,
+      });
+      continue;
+    }
+
+    const examGrade = parseOptionalGrade(config.bmsExamGrades[subject.id] ?? "", `${subject.name} Pruefungsnote`);
+    if (examGrade.error) errors.push(examGrade.error);
+
+    inputs.push({
+      id: subject.id,
+      name: subject.name,
+      kind: "exam",
+      semesterGrades,
+      ...(examGrade.value !== null ? { examGrade: examGrade.value } : {}),
+    });
+  }
+
+  const result = errors.length === 0 ? calculateBmsResult(inputs) : null;
+  const failedLabels = result?.failedConditions.map((condition) => BMS_FAILURE_LABELS[condition] ?? condition) ?? [];
+  const completedSubjects = result?.subjects.filter((subject) => subject.fachnote !== null).length ?? 0;
+
+  return {
+    result,
+    errors: [...errors, ...failedLabels],
+    examSubjects: bmsSubjects.filter((subject) => subject.subjectType === "bms_exam_subject"),
+    idpaSubjects: bmsSubjects.filter((subject) => subject.subjectType === "bms_idpa_idaf"),
+    completedSubjects,
+    totalSubjects: inputs.length,
+    summary:
+      inputs.length === 0
+        ? "Markiere Faecher als BMS-Faecher, um den Status aus gespeicherten Noten zu berechnen."
+        : "Semesterdurchschnitte kommen aus gespeicherten Fachnoten; Abschlussnoten kannst du hier ergaenzen.",
+    tone:
+      result?.passed === true ? ("good" as const) : result?.passed === false ? ("bad" as const) : ("neutral" as const),
+  };
+}
+
+function buildEfzStatus(snapshot: AccountSnapshot, config: SavedProgramConfig) {
+  const schoolModules = snapshot.grades
+    .filter((grade) => grade.subject.subjectType === "efz_school_module")
+    .map((grade) => gradeValue(grade));
+  const uekModules = snapshot.grades
+    .filter((grade) => grade.subject.subjectType === "efz_uek_module")
+    .map((grade) => gradeValue(grade));
+  const ipaGrade = parseOptionalGrade(config.efzIpaGrade, "IPA");
+  const result = calculateEfzResult({
+    schoolModules,
+    uekModules,
+    ipaGrade: ipaGrade.value,
+  });
+  const failedLabels = result.failedConditions.map((condition) => EFZ_FAILURE_LABELS[condition] ?? condition);
+
+  return {
+    result,
+    schoolCount: schoolModules.length,
+    uekCount: uekModules.length,
+    errors: [...(ipaGrade.error ? [ipaGrade.error] : []), ...failedLabels],
+    summary:
+      schoolModules.length === 0 && uekModules.length === 0
+        ? "Markiere Faecher als EFZ Schul- oder UeK-Module, um den Status aus gespeicherten Noten zu berechnen."
+        : "Schul- und UeK-Module kommen aus gespeicherten Noten; die IPA kannst du hier ergaenzen.",
+    tone:
+      result.passed === true ? ("good" as const) : result.passed === false ? ("bad" as const) : ("neutral" as const),
+  };
+}
+
+function deriveRoundedSemesterGrades(subject: AccountSubject, grades: AccountGrade[]): number[] {
+  const gradesByTerm = new Map<string, AccountGrade[]>();
+  for (const grade of grades) {
+    if (grade.subjectId !== subject.id) continue;
+    const termKey = grade.termId ?? "no-term";
+    gradesByTerm.set(termKey, [...(gradesByTerm.get(termKey) ?? []), grade]);
+  }
+
+  return Array.from(gradesByTerm.values()).flatMap((termGrades) => {
+    const semesterGrade = calculateSemesterGrade(
+      termGrades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) })),
+    );
+    return semesterGrade === null ? [] : [semesterGrade];
   });
 }
 
