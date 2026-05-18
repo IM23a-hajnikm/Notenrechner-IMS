@@ -7,6 +7,16 @@ import { GradeType, SubjectType, calculateSemesterGrade, calculateWeightedAverag
 import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
+import {
+  FieldError,
+  FieldErrors,
+  fieldErrorId,
+  fieldErrorsFromZod,
+  gradeFormSchema,
+  inputClassName,
+  subjectFormSchema,
+  termFormSchema,
+} from "../validation/form-validation";
 import { DemoGrade, DemoState, DemoSubject, DemoTerm, demoSeed } from "./demo-data";
 
 const STORAGE_KEY = "notenrechner-v2-demo";
@@ -56,6 +66,10 @@ type GradeDraft = {
   type: GradeType;
   notes: string;
 };
+
+type SubjectFormField = "name" | "shortName" | "color" | "subjectType" | "archived";
+type TermFormField = "name" | "startDate" | "endDate" | "isActive";
+type GradeFormField = "subjectId" | "termId" | "title" | "gradeValue" | "weight" | "date" | "type" | "notes";
 
 type GradeSort =
   | "date-desc"
@@ -135,10 +149,13 @@ export function DemoWorkspace() {
   const [state, setState] = useState<DemoState>(() => cloneDemoState(demoSeed));
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
   const [subjectDraft, setSubjectDraft] = useState<SubjectDraft>(emptySubjectDraft);
+  const [subjectErrors, setSubjectErrors] = useState<FieldErrors<SubjectFormField>>({});
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [termDraft, setTermDraft] = useState<TermDraft>(emptyTermDraft);
+  const [termErrors, setTermErrors] = useState<FieldErrors<TermFormField>>({});
   const [editingTermId, setEditingTermId] = useState<string | null>(null);
   const [gradeDraft, setGradeDraft] = useState<GradeDraft>(emptyGradeDraft);
+  const [gradeErrors, setGradeErrors] = useState<FieldErrors<GradeFormField>>({});
   const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
 
@@ -173,14 +190,20 @@ export function DemoWorkspace() {
 
   function saveSubject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!subjectDraft.name.trim()) return;
+    setSubjectErrors({});
+
+    const parsed = subjectFormSchema.safeParse({ ...subjectDraft, archived: false });
+    if (!parsed.success) {
+      setSubjectErrors(fieldErrorsFromZod<SubjectFormField>(parsed.error));
+      return;
+    }
 
     const nextSubject: DemoSubject = {
       id: editingSubjectId ?? createId("subject"),
-      name: subjectDraft.name.trim(),
-      shortName: subjectDraft.shortName.trim() || null,
-      color: subjectDraft.color || DEFAULT_COLOR,
-      subjectType: subjectDraft.subjectType,
+      name: parsed.data.name,
+      shortName: parsed.data.shortName,
+      color: parsed.data.color || DEFAULT_COLOR,
+      subjectType: parsed.data.subjectType,
       archived: state.subjects.find((subject) => subject.id === editingSubjectId)?.archived ?? false,
     };
 
@@ -191,10 +214,12 @@ export function DemoWorkspace() {
         : [nextSubject, ...current.subjects],
     }));
     setSubjectDraft(emptySubjectDraft);
+    setSubjectErrors({});
     setEditingSubjectId(null);
   }
 
   function startEditSubject(subject: DemoSubject) {
+    setSubjectErrors({});
     setSubjectDraft({
       name: subject.name,
       shortName: subject.shortName ?? "",
@@ -222,6 +247,7 @@ export function DemoWorkspace() {
     if (editingSubjectId === subjectId) {
       setEditingSubjectId(null);
       setSubjectDraft(emptySubjectDraft);
+      setSubjectErrors({});
     }
     if (gradeDraft.subjectId === subjectId) {
       setGradeDraft((current) => ({ ...current, subjectId: "" }));
@@ -230,14 +256,20 @@ export function DemoWorkspace() {
 
   function saveTerm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!termDraft.name.trim()) return;
+    setTermErrors({});
+
+    const parsed = termFormSchema.safeParse(termDraft);
+    if (!parsed.success) {
+      setTermErrors(fieldErrorsFromZod<TermFormField>(parsed.error));
+      return;
+    }
 
     const nextTerm: DemoTerm = {
       id: editingTermId ?? createId("term"),
-      name: termDraft.name.trim(),
-      startDate: termDraft.startDate || null,
-      endDate: termDraft.endDate || null,
-      isActive: termDraft.isActive,
+      name: parsed.data.name,
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+      isActive: parsed.data.isActive,
     };
 
     setState((current) => ({
@@ -245,10 +277,12 @@ export function DemoWorkspace() {
       terms: upsertTerm(current.terms, nextTerm, editingTermId),
     }));
     setTermDraft(emptyTermDraft);
+    setTermErrors({});
     setEditingTermId(null);
   }
 
   function startEditTerm(term: DemoTerm) {
+    setTermErrors({});
     setTermDraft({
       name: term.name,
       startDate: term.startDate ?? "",
@@ -277,6 +311,7 @@ export function DemoWorkspace() {
     if (editingTermId === termId) {
       setEditingTermId(null);
       setTermDraft(emptyTermDraft);
+      setTermErrors({});
     }
     if (gradeDraft.termId === termId) {
       setGradeDraft((current) => ({ ...current, termId: "" }));
@@ -285,32 +320,33 @@ export function DemoWorkspace() {
 
   function saveGrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setGradeErrors({});
 
-    const parsedValue = Number(gradeDraft.value);
-    const parsedWeight = Number(gradeDraft.weight);
-
-    if (
-      !selectedSubjectId ||
-      !gradeDraft.title.trim() ||
-      !Number.isFinite(parsedValue) ||
-      !Number.isFinite(parsedWeight) ||
-      parsedValue < 1 ||
-      parsedValue > 6 ||
-      parsedWeight < 0
-    ) {
+    const parsed = gradeFormSchema.safeParse({
+      subjectId: selectedSubjectId,
+      termId: gradeDraft.termId,
+      title: gradeDraft.title,
+      gradeValue: gradeDraft.value,
+      weight: gradeDraft.weight,
+      date: gradeDraft.date,
+      type: gradeDraft.type,
+      notes: gradeDraft.notes,
+    });
+    if (!parsed.success) {
+      setGradeErrors(fieldErrorsFromZod<GradeFormField>(parsed.error));
       return;
     }
 
     const nextGrade: DemoGrade = {
       id: editingGradeId ?? createId("grade"),
-      subjectId: selectedSubjectId,
-      termId: gradeDraft.termId || null,
-      title: gradeDraft.title.trim(),
-      value: parsedValue,
-      weight: parsedWeight,
-      date: gradeDraft.date || null,
-      type: gradeDraft.type,
-      notes: gradeDraft.notes.trim() || null,
+      subjectId: parsed.data.subjectId,
+      termId: parsed.data.termId,
+      title: parsed.data.title,
+      value: parsed.data.gradeValue,
+      weight: parsed.data.weight,
+      date: parsed.data.date,
+      type: parsed.data.type,
+      notes: parsed.data.notes,
     };
 
     setState((current) => ({
@@ -320,10 +356,12 @@ export function DemoWorkspace() {
         : [nextGrade, ...current.grades],
     }));
     setGradeDraft({ ...emptyGradeDraft, subjectId: selectedSubjectId, termId: gradeDraft.termId });
+    setGradeErrors({});
     setEditingGradeId(null);
   }
 
   function startEditGrade(grade: DemoGrade) {
+    setGradeErrors({});
     setGradeDraft({
       subjectId: grade.subjectId,
       termId: grade.termId ?? "",
@@ -345,6 +383,7 @@ export function DemoWorkspace() {
     if (editingGradeId === gradeId) {
       setEditingGradeId(null);
       setGradeDraft(emptyGradeDraft);
+      setGradeErrors({});
     }
   }
 
@@ -426,8 +465,10 @@ export function DemoWorkspace() {
             <SubjectForm
               draft={subjectDraft}
               editing={editingSubjectId !== null}
+              errors={subjectErrors}
               onCancel={() => {
                 setSubjectDraft(emptySubjectDraft);
+                setSubjectErrors({});
                 setEditingSubjectId(null);
               }}
               onChange={setSubjectDraft}
@@ -436,8 +477,10 @@ export function DemoWorkspace() {
             <TermForm
               draft={termDraft}
               editing={editingTermId !== null}
+              errors={termErrors}
               onCancel={() => {
                 setTermDraft(emptyTermDraft);
+                setTermErrors({});
                 setEditingTermId(null);
               }}
               onChange={setTermDraft}
@@ -446,11 +489,13 @@ export function DemoWorkspace() {
             <GradeForm
               draft={gradeDraft}
               editing={editingGradeId !== null}
+              errors={gradeErrors}
               selectedSubjectId={selectedSubjectId}
               subjects={state.subjects}
               terms={state.terms}
               onCancel={() => {
                 setGradeDraft(emptyGradeDraft);
+                setGradeErrors({});
                 setEditingGradeId(null);
               }}
               onChange={setGradeDraft}
@@ -488,18 +533,22 @@ export function DemoWorkspace() {
 function SubjectForm({
   draft,
   editing,
+  errors,
   onCancel,
   onChange,
   onSubmit,
 }: {
   draft: SubjectDraft;
   editing: boolean;
+  errors: FieldErrors<SubjectFormField>;
   onCancel: () => void;
   onChange: (draft: SubjectDraft) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const formId = editing ? "demo-subject-edit" : "demo-subject-new";
+
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={onSubmit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink">{editing ? "Fach bearbeiten" : "Fach erfassen"}</h2>
         {editing ? (
@@ -514,9 +563,11 @@ function SubjectForm({
           <input
             value={draft.name}
             onChange={(event) => onChange({ ...draft, name: event.target.value })}
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? fieldErrorId(formId, "name") : undefined}
+            className={inputClassName(Boolean(errors.name))}
           />
+          <FieldError id={fieldErrorId(formId, "name")} message={errors.name} />
         </label>
         <div className="grid grid-cols-[1fr_64px] gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -524,8 +575,11 @@ function SubjectForm({
             <input
               value={draft.shortName}
               onChange={(event) => onChange({ ...draft, shortName: event.target.value })}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.shortName)}
+              aria-describedby={errors.shortName ? fieldErrorId(formId, "shortName") : undefined}
+              className={inputClassName(Boolean(errors.shortName))}
             />
+            <FieldError id={fieldErrorId(formId, "shortName")} message={errors.shortName} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Farbe
@@ -533,8 +587,11 @@ function SubjectForm({
               type="color"
               value={draft.color}
               onChange={(event) => onChange({ ...draft, color: event.target.value })}
+              aria-invalid={Boolean(errors.color)}
+              aria-describedby={errors.color ? fieldErrorId(formId, "color") : undefined}
               className="h-10 rounded-md border border-black/15 bg-white px-1 py-1"
             />
+            <FieldError id={fieldErrorId(formId, "color")} message={errors.color} />
           </label>
         </div>
         <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -562,18 +619,22 @@ function SubjectForm({
 function TermForm({
   draft,
   editing,
+  errors,
   onCancel,
   onChange,
   onSubmit,
 }: {
   draft: TermDraft;
   editing: boolean;
+  errors: FieldErrors<TermFormField>;
   onCancel: () => void;
   onChange: (draft: TermDraft) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const formId = editing ? "demo-term-edit" : "demo-term-new";
+
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={onSubmit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink">{editing ? "Semester bearbeiten" : "Semester erfassen"}</h2>
         {editing ? (
@@ -589,9 +650,11 @@ function TermForm({
             value={draft.name}
             onChange={(event) => onChange({ ...draft, name: event.target.value })}
             placeholder="z.B. 3. Semester"
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(errors.name)}
+            aria-describedby={errors.name ? fieldErrorId(formId, "name") : undefined}
+            className={inputClassName(Boolean(errors.name))}
           />
+          <FieldError id={fieldErrorId(formId, "name")} message={errors.name} />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -600,8 +663,11 @@ function TermForm({
               type="date"
               value={draft.startDate}
               onChange={(event) => onChange({ ...draft, startDate: event.target.value })}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.startDate)}
+              aria-describedby={errors.startDate ? fieldErrorId(formId, "startDate") : undefined}
+              className={inputClassName(Boolean(errors.startDate))}
             />
+            <FieldError id={fieldErrorId(formId, "startDate")} message={errors.startDate} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Ende
@@ -609,8 +675,11 @@ function TermForm({
               type="date"
               value={draft.endDate}
               onChange={(event) => onChange({ ...draft, endDate: event.target.value })}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.endDate)}
+              aria-describedby={errors.endDate ? fieldErrorId(formId, "endDate") : undefined}
+              className={inputClassName(Boolean(errors.endDate))}
             />
+            <FieldError id={fieldErrorId(formId, "endDate")} message={errors.endDate} />
           </label>
         </div>
         <label className="flex items-center gap-2 text-sm font-medium text-black/70">
@@ -632,6 +701,7 @@ function TermForm({
 function GradeForm({
   draft,
   editing,
+  errors,
   selectedSubjectId,
   subjects,
   terms,
@@ -641,6 +711,7 @@ function GradeForm({
 }: {
   draft: GradeDraft;
   editing: boolean;
+  errors: FieldErrors<GradeFormField>;
   selectedSubjectId: string;
   subjects: DemoSubject[];
   terms: DemoTerm[];
@@ -648,8 +719,10 @@ function GradeForm({
   onChange: (draft: GradeDraft) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const formId = editing ? "demo-grade-edit" : "demo-grade-new";
+
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={onSubmit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ink">{editing ? "Note bearbeiten" : "Note erfassen"}</h2>
         {editing ? (
@@ -665,7 +738,9 @@ function GradeForm({
             value={selectedSubjectId}
             onChange={(event) => onChange({ ...draft, subjectId: event.target.value })}
             disabled={subjects.length === 0}
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(errors.subjectId)}
+            aria-describedby={errors.subjectId ? fieldErrorId(formId, "subjectId") : undefined}
+            className={inputClassName(Boolean(errors.subjectId))}
           >
             {subjects.length === 0 ? <option>Erst ein Fach erstellen</option> : null}
             {subjects.map((subject) => (
@@ -675,6 +750,7 @@ function GradeForm({
               </option>
             ))}
           </select>
+          <FieldError id={fieldErrorId(formId, "subjectId")} message={errors.subjectId} />
         </label>
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Semester
@@ -696,9 +772,11 @@ function GradeForm({
           <input
             value={draft.title}
             onChange={(event) => onChange({ ...draft, title: event.target.value })}
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(errors.title)}
+            aria-describedby={errors.title ? fieldErrorId(formId, "title") : undefined}
+            className={inputClassName(Boolean(errors.title))}
           />
+          <FieldError id={fieldErrorId(formId, "title")} message={errors.title} />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -707,9 +785,11 @@ function GradeForm({
               value={draft.value}
               onChange={(event) => onChange({ ...draft, value: event.target.value })}
               inputMode="decimal"
-              required
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.gradeValue)}
+              aria-describedby={errors.gradeValue ? fieldErrorId(formId, "gradeValue") : undefined}
+              className={inputClassName(Boolean(errors.gradeValue))}
             />
+            <FieldError id={fieldErrorId(formId, "gradeValue")} message={errors.gradeValue} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Gewicht
@@ -717,9 +797,11 @@ function GradeForm({
               value={draft.weight}
               onChange={(event) => onChange({ ...draft, weight: event.target.value })}
               inputMode="decimal"
-              required
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.weight)}
+              aria-describedby={errors.weight ? fieldErrorId(formId, "weight") : undefined}
+              className={inputClassName(Boolean(errors.weight))}
             />
+            <FieldError id={fieldErrorId(formId, "weight")} message={errors.weight} />
           </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -729,8 +811,11 @@ function GradeForm({
               type="date"
               value={draft.date}
               onChange={(event) => onChange({ ...draft, date: event.target.value })}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(errors.date)}
+              aria-describedby={errors.date ? fieldErrorId(formId, "date") : undefined}
+              className={inputClassName(Boolean(errors.date))}
             />
+            <FieldError id={fieldErrorId(formId, "date")} message={errors.date} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Typ
@@ -753,8 +838,11 @@ function GradeForm({
             value={draft.notes}
             onChange={(event) => onChange({ ...draft, notes: event.target.value })}
             rows={3}
-            className="resize-none rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(errors.notes)}
+            aria-describedby={errors.notes ? fieldErrorId(formId, "notes") : undefined}
+            className={inputClassName(Boolean(errors.notes), "resize-none")}
           />
+          <FieldError id={fieldErrorId(formId, "notes")} message={errors.notes} />
         </label>
         <button
           disabled={subjects.length === 0}
