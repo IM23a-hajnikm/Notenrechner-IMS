@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, UseGuards } from "@nestjs/common";
 
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -9,7 +9,7 @@ import { GradesService } from "./grades.service";
 @Controller("grades")
 @UseGuards(JwtAuthGuard)
 export class GradesController {
-  constructor(private readonly grades: GradesService) {}
+  constructor(@Inject(GradesService) private readonly grades: GradesService) {}
 
   @Get()
   findMany(@CurrentUser() user: AuthenticatedUser) {

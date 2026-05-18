@@ -1,8 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  GradeType,
+  SubjectType,
   calculateRequiredGrade,
   calculateSemesterGrade,
   calculateWeightedAverage,
@@ -11,72 +13,171 @@ import {
 
 import { CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
-import { DemoGrade, DemoState, demoSeed } from "./demo-data";
+import { DemoGrade, DemoState, DemoSubject, DemoTerm, demoSeed } from "./demo-data";
 
 const STORAGE_KEY = "notenrechner-v2-demo";
+const DEFAULT_COLOR = "#1f7a68";
+
+const SUBJECT_TYPES: { value: SubjectType; label: string }[] = [
+  { value: "regular", label: "Regulaer" },
+  { value: "bms_exam_subject", label: "BMS Pruefungsfach" },
+  { value: "bms_non_exam_subject", label: "BMS Erfahrungsfach" },
+  { value: "bms_idpa_idaf", label: "IDPA / IDAF" },
+  { value: "efz_school_module", label: "EFZ Schule" },
+  { value: "efz_uek_module", label: "EFZ UeK" },
+  { value: "custom", label: "Custom" },
+];
+
+const GRADE_TYPES: { value: GradeType; label: string }[] = [
+  { value: "exam", label: "Pruefung" },
+  { value: "quiz", label: "Kurztest" },
+  { value: "project", label: "Projekt" },
+  { value: "module", label: "Modul" },
+  { value: "oral", label: "Muendlich" },
+  { value: "written", label: "Schriftlich" },
+  { value: "other", label: "Andere" },
+];
+
+type SubjectDraft = {
+  name: string;
+  shortName: string;
+  color: string;
+  subjectType: SubjectType;
+};
+
+type TermDraft = {
+  name: string;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+};
+
+type GradeDraft = {
+  subjectId: string;
+  termId: string;
+  title: string;
+  value: string;
+  weight: string;
+  date: string;
+  type: GradeType;
+  notes: string;
+};
+
+type GradeSort =
+  | "date-desc"
+  | "date-asc"
+  | "grade-desc"
+  | "grade-asc"
+  | "subject-asc"
+  | "subject-desc"
+  | "term-asc"
+  | "term-desc"
+  | "weight-desc"
+  | "weight-asc";
+
+type GradeFilters = {
+  search: string;
+  subjectId: string;
+  termId: string;
+  type: string;
+  dateFrom: string;
+  dateTo: string;
+  belowFourOnly: boolean;
+  sort: GradeSort;
+};
+
+const emptySubjectDraft: SubjectDraft = {
+  name: "",
+  shortName: "",
+  color: DEFAULT_COLOR,
+  subjectType: "regular",
+};
+
+const emptyTermDraft: TermDraft = {
+  name: "",
+  startDate: "",
+  endDate: "",
+  isActive: false,
+};
+
+const emptyGradeDraft: GradeDraft = {
+  subjectId: "",
+  termId: "",
+  title: "",
+  value: "4.5",
+  weight: "1",
+  date: today(),
+  type: "exam",
+  notes: "",
+};
+
+const NO_TERM_FILTER = "__none";
+
+const DEFAULT_GRADE_FILTERS: GradeFilters = {
+  search: "",
+  subjectId: "",
+  termId: "",
+  type: "",
+  dateFrom: "",
+  dateTo: "",
+  belowFourOnly: false,
+  sort: "date-desc",
+};
+
+const GRADE_SORTS: { value: GradeSort; label: string }[] = [
+  { value: "date-desc", label: "Datum neu zuerst" },
+  { value: "date-asc", label: "Datum alt zuerst" },
+  { value: "grade-desc", label: "Note hoch zuerst" },
+  { value: "grade-asc", label: "Note tief zuerst" },
+  { value: "subject-asc", label: "Fach A-Z" },
+  { value: "subject-desc", label: "Fach Z-A" },
+  { value: "term-asc", label: "Semester A-Z" },
+  { value: "term-desc", label: "Semester Z-A" },
+  { value: "weight-desc", label: "Gewicht hoch zuerst" },
+  { value: "weight-asc", label: "Gewicht tief zuerst" },
+];
 
 export function DemoWorkspace() {
-  const [state, setState] = useState<DemoState>(demoSeed);
-  const hasLoadedStoredState = useRef(false);
-  const [subjectId, setSubjectId] = useState(demoSeed.subjects[0]?.id ?? "");
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("4.5");
-  const [weight, setWeight] = useState("1");
+  const [state, setState] = useState<DemoState>(() => cloneDemoState(demoSeed));
+  const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
+  const [subjectDraft, setSubjectDraft] = useState<SubjectDraft>(emptySubjectDraft);
+  const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
+  const [termDraft, setTermDraft] = useState<TermDraft>(emptyTermDraft);
+  const [editingTermId, setEditingTermId] = useState<string | null>(null);
+  const [gradeDraft, setGradeDraft] = useState<GradeDraft>(emptyGradeDraft);
+  const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
   const [targetRounded, setTargetRounded] = useState("4.5");
   const [upcomingWeight, setUpcomingWeight] = useState("1");
+  const [resetArmed, setResetArmed] = useState(false);
 
   useEffect(() => {
-    window.queueMicrotask(() => {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-
-      if (!raw) {
-        hasLoadedStoredState.current = true;
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (isDemoState(parsed)) {
-          hasLoadedStoredState.current = true;
-          setState(parsed);
-        } else {
-          hasLoadedStoredState.current = true;
-          window.localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch {
-        hasLoadedStoredState.current = true;
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-    });
+    // Hydration starts from seed data, then reconciles browser-only localStorage after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setState(loadStoredState);
+    setHasLoadedStorage(true);
   }, []);
 
   useEffect(() => {
-    if (!hasLoadedStoredState.current) return;
+    if (!hasLoadedStorage) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+  }, [hasLoadedStorage, state]);
 
-  const subjectSummaries = useMemo(
-    () =>
-      state.subjects.map((subject) => {
-        const grades = state.grades.filter((grade) => grade.subjectId === subject.id);
-        const items = grades.map((grade) => ({ value: grade.value, weight: grade.weight }));
-        return {
-          subject,
-          count: grades.length,
-          exactAverage: calculateWeightedAverage(items),
-          semesterGrade: calculateSemesterGrade(items),
-        };
-      }),
-    [state],
-  );
+  const activeSubjects = state.subjects.filter((subject) => !subject.archived);
+  const subjectIds = new Set(state.subjects.map((subject) => subject.id));
+  const selectedSubjectId = subjectIds.has(gradeDraft.subjectId)
+    ? gradeDraft.subjectId
+    : activeSubjects[0]?.id || state.subjects[0]?.id || "";
 
   const allItems = useMemo(
     () => state.grades.map((grade) => ({ value: grade.value, weight: grade.weight })),
     [state.grades],
   );
-  const semesterGrade = calculateSemesterGrade(allItems);
   const exactAverage = calculateWeightedAverage(allItems);
+  const semesterGrade = calculateSemesterGrade(allItems);
   const belowFour = state.grades.filter((grade) => grade.value < 4);
+  const subjectSummaries = useMemo(() => buildSubjectSummaries(state.subjects, state.grades), [state]);
+  const activeTerm = state.terms.find((term) => term.isActive);
+  const certificationStatus = useMemo(() => deriveSavedCertificationStatus(state.subjects, state.grades), [state]);
   const requiredGrade = useMemo(() => {
     const parsedTarget = Number(targetRounded);
     const parsedUpcomingWeight = Number(upcomingWeight);
@@ -89,17 +190,128 @@ export function DemoWorkspace() {
       return null;
     }
   }, [allItems, targetRounded, upcomingWeight]);
-  const certificationStatus = useMemo(() => deriveSavedCertificationStatus(state.subjects, state.grades), [state]);
 
-  function addGrade(event: FormEvent<HTMLFormElement>) {
+  function saveSubject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!subjectDraft.name.trim()) return;
+
+    const nextSubject: DemoSubject = {
+      id: editingSubjectId ?? createId("subject"),
+      name: subjectDraft.name.trim(),
+      shortName: subjectDraft.shortName.trim() || null,
+      color: subjectDraft.color || DEFAULT_COLOR,
+      subjectType: subjectDraft.subjectType,
+      archived: state.subjects.find((subject) => subject.id === editingSubjectId)?.archived ?? false,
+    };
+
+    setState((current) => ({
+      ...current,
+      subjects: editingSubjectId
+        ? current.subjects.map((subject) => (subject.id === editingSubjectId ? nextSubject : subject))
+        : [nextSubject, ...current.subjects],
+    }));
+    setSubjectDraft(emptySubjectDraft);
+    setEditingSubjectId(null);
+  }
+
+  function startEditSubject(subject: DemoSubject) {
+    setSubjectDraft({
+      name: subject.name,
+      shortName: subject.shortName ?? "",
+      color: subject.color ?? DEFAULT_COLOR,
+      subjectType: subject.subjectType,
+    });
+    setEditingSubjectId(subject.id);
+  }
+
+  function toggleSubjectArchived(subjectId: string) {
+    setState((current) => ({
+      ...current,
+      subjects: current.subjects.map((subject) =>
+        subject.id === subjectId ? { ...subject, archived: !subject.archived } : subject,
+      ),
+    }));
+  }
+
+  function deleteSubject(subjectId: string) {
+    setState((current) => ({
+      ...current,
+      subjects: current.subjects.filter((subject) => subject.id !== subjectId),
+      grades: current.grades.filter((grade) => grade.subjectId !== subjectId),
+    }));
+    if (editingSubjectId === subjectId) {
+      setEditingSubjectId(null);
+      setSubjectDraft(emptySubjectDraft);
+    }
+    if (gradeDraft.subjectId === subjectId) {
+      setGradeDraft((current) => ({ ...current, subjectId: "" }));
+    }
+  }
+
+  function saveTerm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!termDraft.name.trim()) return;
+
+    const nextTerm: DemoTerm = {
+      id: editingTermId ?? createId("term"),
+      name: termDraft.name.trim(),
+      startDate: termDraft.startDate || null,
+      endDate: termDraft.endDate || null,
+      isActive: termDraft.isActive,
+    };
+
+    setState((current) => ({
+      ...current,
+      terms: upsertTerm(current.terms, nextTerm, editingTermId),
+    }));
+    setTermDraft(emptyTermDraft);
+    setEditingTermId(null);
+  }
+
+  function startEditTerm(term: DemoTerm) {
+    setTermDraft({
+      name: term.name,
+      startDate: term.startDate ?? "",
+      endDate: term.endDate ?? "",
+      isActive: term.isActive,
+    });
+    setEditingTermId(term.id);
+  }
+
+  function toggleTermActive(termId: string) {
+    setState((current) => ({
+      ...current,
+      terms: current.terms.map((term) => ({
+        ...term,
+        isActive: term.id === termId ? !term.isActive : false,
+      })),
+    }));
+  }
+
+  function deleteTerm(termId: string) {
+    setState((current) => ({
+      ...current,
+      terms: current.terms.filter((term) => term.id !== termId),
+      grades: current.grades.map((grade) => (grade.termId === termId ? { ...grade, termId: null } : grade)),
+    }));
+    if (editingTermId === termId) {
+      setEditingTermId(null);
+      setTermDraft(emptyTermDraft);
+    }
+    if (gradeDraft.termId === termId) {
+      setGradeDraft((current) => ({ ...current, termId: "" }));
+    }
+  }
+
+  function saveGrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const parsedValue = Number(value);
-    const parsedWeight = Number(weight);
+    const parsedValue = Number(gradeDraft.value);
+    const parsedWeight = Number(gradeDraft.weight);
 
     if (
-      !subjectId ||
-      !title.trim() ||
+      !selectedSubjectId ||
+      !gradeDraft.title.trim() ||
       !Number.isFinite(parsedValue) ||
       !Number.isFinite(parsedWeight) ||
       parsedValue < 1 ||
@@ -109,40 +321,72 @@ export function DemoWorkspace() {
       return;
     }
 
-    const grade: DemoGrade = {
-      id: crypto.randomUUID(),
-      subjectId,
-      termId: "demo-semester",
-      title: title.trim(),
+    const nextGrade: DemoGrade = {
+      id: editingGradeId ?? createId("grade"),
+      subjectId: selectedSubjectId,
+      termId: gradeDraft.termId || null,
+      title: gradeDraft.title.trim(),
       value: parsedValue,
       weight: parsedWeight,
-      date: new Date().toISOString().slice(0, 10),
-      type: "exam",
+      date: gradeDraft.date || null,
+      type: gradeDraft.type,
+      notes: gradeDraft.notes.trim() || null,
     };
 
     setState((current) => ({
       ...current,
-      grades: [grade, ...current.grades],
+      grades: editingGradeId
+        ? current.grades.map((grade) => (grade.id === editingGradeId ? nextGrade : grade))
+        : [nextGrade, ...current.grades],
     }));
-    setTitle("");
-    setValue("4.5");
-    setWeight("1");
+    setGradeDraft({ ...emptyGradeDraft, subjectId: selectedSubjectId, termId: gradeDraft.termId });
+    setEditingGradeId(null);
   }
 
-  function deleteGrade(id: string) {
+  function startEditGrade(grade: DemoGrade) {
+    setGradeDraft({
+      subjectId: grade.subjectId,
+      termId: grade.termId ?? "",
+      title: grade.title,
+      value: String(grade.value),
+      weight: String(grade.weight),
+      date: grade.date ?? "",
+      type: grade.type,
+      notes: grade.notes ?? "",
+    });
+    setEditingGradeId(grade.id);
+  }
+
+  function deleteGrade(gradeId: string) {
     setState((current) => ({
       ...current,
-      grades: current.grades.filter((grade) => grade.id !== id),
+      grades: current.grades.filter((grade) => grade.id !== gradeId),
     }));
+    if (editingGradeId === gradeId) {
+      setEditingGradeId(null);
+      setGradeDraft(emptyGradeDraft);
+    }
   }
 
   function resetDemo() {
-    setState(demoSeed);
+    if (!resetArmed) {
+      setResetArmed(true);
+      return;
+    }
+
+    setState(cloneDemoState(demoSeed));
+    setSubjectDraft(emptySubjectDraft);
+    setTermDraft(emptyTermDraft);
+    setGradeDraft(emptyGradeDraft);
+    setEditingSubjectId(null);
+    setEditingTermId(null);
+    setEditingGradeId(null);
+    setResetArmed(false);
   }
 
   return (
     <main className="min-h-screen bg-[#f6f8f7]">
-      <div className="mx-auto w-full max-w-6xl px-5 py-6 sm:px-8">
+      <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8">
         <nav className="flex flex-wrap items-center justify-between gap-4 border-b border-black/10 pb-4">
           <div>
             <Link href="/" className="text-sm font-semibold uppercase tracking-wide text-alpine">
@@ -153,10 +397,22 @@ export function DemoWorkspace() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={resetDemo}
-              className="rounded-md border border-black/15 bg-white px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
+              className={`rounded-md border px-4 py-2 text-sm font-semibold ${
+                resetArmed
+                  ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
+                  : "border-black/15 bg-white text-ink hover:border-black/30"
+              }`}
             >
-              Demo zuruecksetzen
+              {resetArmed ? "Reset bestaetigen" : "Demo zuruecksetzen"}
             </button>
+            {resetArmed ? (
+              <button
+                onClick={() => setResetArmed(false)}
+                className="rounded-md border border-black/15 bg-white px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
+              >
+                Abbrechen
+              </button>
+            ) : null}
             <Link
               href="/calculators"
               className="rounded-md border border-black/15 bg-white px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
@@ -170,155 +426,83 @@ export function DemoWorkspace() {
         </nav>
 
         <p className="mt-4 rounded-md border border-signal/25 bg-signal/10 px-4 py-3 text-sm text-black/70">
-          Demo-Daten werden nur lokal in diesem Browser gespeichert. Erstelle einen Account, um Daten dauerhaft in der
-          Datenbank zu sichern.
+          Demo-Daten bleiben nur in diesem Browser. Die Bedienung entspricht dem Account-Modus; ein Account speichert
+          deine Faecher, Semester und Noten dauerhaft in PostgreSQL.
         </p>
 
-        <section className="mt-6 grid gap-4 md:grid-cols-4">
-          <DashboardMetric label="Exakter Schnitt" value={exactAverage === null ? "-" : exactAverage.toFixed(2)} />
-          <DashboardMetric label="Zeugnisnote" value={semesterGrade === null ? "-" : semesterGrade.toFixed(1)} />
-          <DashboardMetric label="Noten unter 4.0" value={String(belowFour.length)} />
-          <DashboardMetric label="Erfasste Noten" value={String(state.grades.length)} />
+        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <Metric label="Exakter Schnitt" value={exactAverage === null ? "-" : exactAverage.toFixed(2)} />
+          <Metric label="Zeugnisnote" value={semesterGrade === null ? "-" : semesterGrade.toFixed(1)} />
+          <Metric label="Unter 4.0" value={String(belowFour.length)} />
+          <Metric label="Faecher aktiv" value={String(activeSubjects.length)} />
+          <Metric label="Aktives Semester" value={activeTerm?.name ?? "-"} />
+          <Metric label="Erfasste Noten" value={String(state.grades.length)} />
         </section>
+
         <CertificationStatusCards status={certificationStatus} />
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
-          <form onSubmit={addGrade} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-            <h2 className="text-lg font-semibold text-ink">Note erfassen</h2>
-            <div className="mt-4 grid gap-3">
-              <label className="grid gap-1 text-sm font-medium text-black/70">
-                Fach
-                <select
-                  value={subjectId}
-                  onChange={(event) => setSubjectId(event.target.value)}
-                  className="rounded-md border border-black/15 px-3 py-2"
-                >
-                  {state.subjects.map((subject) => (
-                    <option key={subject.id} value={subject.id}>
-                      {subject.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-black/70">
-                Titel
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="z.B. LB02"
-                  className="rounded-md border border-black/15 px-3 py-2"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="grid gap-1 text-sm font-medium text-black/70">
-                  Note
-                  <input
-                    value={value}
-                    onChange={(event) => setValue(event.target.value)}
-                    inputMode="decimal"
-                    className="rounded-md border border-black/15 px-3 py-2"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-black/70">
-                  Gewicht
-                  <input
-                    value={weight}
-                    onChange={(event) => setWeight(event.target.value)}
-                    inputMode="decimal"
-                    className="rounded-md border border-black/15 px-3 py-2"
-                  />
-                </label>
-              </div>
-              <button className="mt-2 rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white hover:bg-[#176653]">
-                Note hinzufuegen
-              </button>
-            </div>
-          </form>
+        <section className="mt-6 grid gap-6 xl:grid-cols-[390px_1fr]">
+          <div className="grid gap-4">
+            <SubjectForm
+              draft={subjectDraft}
+              editing={editingSubjectId !== null}
+              onCancel={() => {
+                setSubjectDraft(emptySubjectDraft);
+                setEditingSubjectId(null);
+              }}
+              onChange={setSubjectDraft}
+              onSubmit={saveSubject}
+            />
+            <TermForm
+              draft={termDraft}
+              editing={editingTermId !== null}
+              onCancel={() => {
+                setTermDraft(emptyTermDraft);
+                setEditingTermId(null);
+              }}
+              onChange={setTermDraft}
+              onSubmit={saveTerm}
+            />
+            <GradeForm
+              draft={gradeDraft}
+              editing={editingGradeId !== null}
+              selectedSubjectId={selectedSubjectId}
+              subjects={state.subjects}
+              terms={state.terms}
+              onCancel={() => {
+                setGradeDraft(emptyGradeDraft);
+                setEditingGradeId(null);
+              }}
+              onChange={setGradeDraft}
+              onSubmit={saveGrade}
+            />
+          </div>
 
           <div className="grid gap-4">
-            <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-              <h2 className="text-lg font-semibold text-ink">Faecher</h2>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                {subjectSummaries.map((summary) => (
-                  <article key={summary.subject.id} className="rounded-md border border-black/10 p-4">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: summary.subject.color }}
-                        aria-hidden
-                      />
-                      <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
-                    </div>
-                    <p className="mt-3 text-3xl font-semibold text-ink">
-                      {summary.semesterGrade === null ? "-" : summary.semesterGrade.toFixed(1)}
-                    </p>
-                    <p className="text-sm text-black/60">
-                      {summary.count} Noten, exakt{" "}
-                      {summary.exactAverage === null ? "-" : summary.exactAverage.toFixed(2)}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-ink">Benoetigte Note</h2>
-                  <p className="text-sm text-black/60">Berechnet auf Basis aller Demo-Noten.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="grid gap-1 text-xs font-medium text-black/60">
-                    Ziel
-                    <input
-                      value={targetRounded}
-                      onChange={(event) => setTargetRounded(event.target.value)}
-                      className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-medium text-black/60">
-                    Gewicht
-                    <input
-                      value={upcomingWeight}
-                      onChange={(event) => setUpcomingWeight(event.target.value)}
-                      className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-              </div>
-              <p className="mt-3 text-3xl font-semibold text-ink">
-                {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
-              </p>
-            </section>
-
-            <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-              <h2 className="text-lg font-semibold text-ink">Letzte Noten</h2>
-              <div className="mt-3 overflow-hidden rounded-md border border-black/10">
-                {state.grades.map((grade) => {
-                  const subject = state.subjects.find((item) => item.id === grade.subjectId);
-                  return (
-                    <div
-                      key={grade.id}
-                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-black/10 px-4 py-3 last:border-b-0"
-                    >
-                      <div>
-                        <p className="font-medium text-ink">{grade.title}</p>
-                        <p className="text-sm text-black/60">
-                          {subject?.name ?? "Fach"} / Gewicht {grade.weight}
-                        </p>
-                      </div>
-                      <span className="font-semibold text-ink">{grade.value.toFixed(2)}</span>
-                      <button
-                        onClick={() => deleteGrade(grade.id)}
-                        className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
-                      >
-                        Entfernen
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+            <SubjectsPanel
+              summaries={subjectSummaries}
+              onArchive={toggleSubjectArchived}
+              onDelete={deleteSubject}
+              onEdit={startEditSubject}
+            />
+            <TermsPanel
+              terms={state.terms}
+              onDelete={deleteTerm}
+              onEdit={startEditTerm}
+              onToggleActive={toggleTermActive}
+            />
+            <GradesPanel
+              grades={state.grades}
+              requiredGrade={requiredGrade}
+              subjects={state.subjects}
+              targetRounded={targetRounded}
+              terms={state.terms}
+              upcomingWeight={upcomingWeight}
+              onDelete={deleteGrade}
+              onEdit={startEditGrade}
+              onTargetRoundedChange={setTargetRounded}
+              onUpcomingWeightChange={setUpcomingWeight}
+            />
           </div>
         </section>
       </div>
@@ -326,24 +510,909 @@ export function DemoWorkspace() {
   );
 }
 
-function DashboardMetric({ label, value }: { label: string; value: string }) {
+function SubjectForm({
+  draft,
+  editing,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  draft: SubjectDraft;
+  editing: boolean;
+  onCancel: () => void;
+  onChange: (draft: SubjectDraft) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-ink">{editing ? "Fach bearbeiten" : "Fach erfassen"}</h2>
+        {editing ? (
+          <button type="button" onClick={onCancel} className="text-sm font-semibold text-black/60 hover:text-ink">
+            Abbrechen
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-3">
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Name
+          <input
+            value={draft.name}
+            onChange={(event) => onChange({ ...draft, name: event.target.value })}
+            required
+            className="rounded-md border border-black/15 px-3 py-2"
+          />
+        </label>
+        <div className="grid grid-cols-[1fr_64px] gap-3">
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Kurzname
+            <input
+              value={draft.shortName}
+              onChange={(event) => onChange({ ...draft, shortName: event.target.value })}
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Farbe
+            <input
+              type="color"
+              value={draft.color}
+              onChange={(event) => onChange({ ...draft, color: event.target.value })}
+              className="h-10 rounded-md border border-black/15 bg-white px-1 py-1"
+            />
+          </label>
+        </div>
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Typ
+          <select
+            value={draft.subjectType}
+            onChange={(event) => onChange({ ...draft, subjectType: event.target.value as SubjectType })}
+            className="rounded-md border border-black/15 px-3 py-2"
+          >
+            {SUBJECT_TYPES.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white hover:bg-[#176653]">
+          {editing ? "Fach aktualisieren" : "Fach speichern"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function TermForm({
+  draft,
+  editing,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  draft: TermDraft;
+  editing: boolean;
+  onCancel: () => void;
+  onChange: (draft: TermDraft) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-ink">{editing ? "Semester bearbeiten" : "Semester erfassen"}</h2>
+        {editing ? (
+          <button type="button" onClick={onCancel} className="text-sm font-semibold text-black/60 hover:text-ink">
+            Abbrechen
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-3">
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Name
+          <input
+            value={draft.name}
+            onChange={(event) => onChange({ ...draft, name: event.target.value })}
+            placeholder="z.B. 3. Semester"
+            required
+            className="rounded-md border border-black/15 px-3 py-2"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Start
+            <input
+              type="date"
+              value={draft.startDate}
+              onChange={(event) => onChange({ ...draft, startDate: event.target.value })}
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Ende
+            <input
+              type="date"
+              value={draft.endDate}
+              onChange={(event) => onChange({ ...draft, endDate: event.target.value })}
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-black/70">
+          <input
+            type="checkbox"
+            checked={draft.isActive}
+            onChange={(event) => onChange({ ...draft, isActive: event.target.checked })}
+          />
+          Aktives Semester
+        </label>
+        <button className="rounded-md bg-lake px-4 py-2 text-sm font-semibold text-white">
+          {editing ? "Semester aktualisieren" : "Semester speichern"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function GradeForm({
+  draft,
+  editing,
+  selectedSubjectId,
+  subjects,
+  terms,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  draft: GradeDraft;
+  editing: boolean;
+  selectedSubjectId: string;
+  subjects: DemoSubject[];
+  terms: DemoTerm[];
+  onCancel: () => void;
+  onChange: (draft: GradeDraft) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-ink">{editing ? "Note bearbeiten" : "Note erfassen"}</h2>
+        {editing ? (
+          <button type="button" onClick={onCancel} className="text-sm font-semibold text-black/60 hover:text-ink">
+            Abbrechen
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-3">
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Fach
+          <select
+            value={selectedSubjectId}
+            onChange={(event) => onChange({ ...draft, subjectId: event.target.value })}
+            disabled={subjects.length === 0}
+            className="rounded-md border border-black/15 px-3 py-2"
+          >
+            {subjects.length === 0 ? <option>Erst ein Fach erstellen</option> : null}
+            {subjects.map((subject) => (
+              <option key={subject.id} value={subject.id}>
+                {subject.name}
+                {subject.archived ? " (archiviert)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Semester
+          <select
+            value={draft.termId}
+            onChange={(event) => onChange({ ...draft, termId: event.target.value })}
+            className="rounded-md border border-black/15 px-3 py-2"
+          >
+            <option value="">Kein Semester</option>
+            {terms.map((term) => (
+              <option key={term.id} value={term.id}>
+                {term.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Titel
+          <input
+            value={draft.title}
+            onChange={(event) => onChange({ ...draft, title: event.target.value })}
+            required
+            className="rounded-md border border-black/15 px-3 py-2"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Note
+            <input
+              value={draft.value}
+              onChange={(event) => onChange({ ...draft, value: event.target.value })}
+              inputMode="decimal"
+              required
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Gewicht
+            <input
+              value={draft.weight}
+              onChange={(event) => onChange({ ...draft, weight: event.target.value })}
+              inputMode="decimal"
+              required
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Datum
+            <input
+              type="date"
+              value={draft.date}
+              onChange={(event) => onChange({ ...draft, date: event.target.value })}
+              className="rounded-md border border-black/15 px-3 py-2"
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-black/70">
+            Typ
+            <select
+              value={draft.type}
+              onChange={(event) => onChange({ ...draft, type: event.target.value as GradeType })}
+              className="rounded-md border border-black/15 px-3 py-2"
+            >
+              {GRADE_TYPES.map((gradeType) => (
+                <option key={gradeType.value} value={gradeType.value}>
+                  {gradeType.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="grid gap-1 text-sm font-medium text-black/70">
+          Notizen
+          <textarea
+            value={draft.notes}
+            onChange={(event) => onChange({ ...draft, notes: event.target.value })}
+            rows={3}
+            className="resize-none rounded-md border border-black/15 px-3 py-2"
+          />
+        </label>
+        <button
+          disabled={subjects.length === 0}
+          className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {editing ? "Note aktualisieren" : "Note speichern"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SubjectsPanel({
+  summaries,
+  onArchive,
+  onDelete,
+  onEdit,
+}: {
+  summaries: SubjectSummary[];
+  onArchive: (subjectId: string) => void;
+  onDelete: (subjectId: string) => void;
+  onEdit: (subject: DemoSubject) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <h2 className="text-lg font-semibold text-ink">Faecher</h2>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {summaries.map((summary) => (
+          <article key={summary.subject.id} className="rounded-md border border-black/10 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: summary.subject.color ?? DEFAULT_COLOR }}
+                    aria-hidden
+                  />
+                  <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
+                </div>
+                <p className="mt-1 text-xs uppercase tracking-wide text-black/45">
+                  {summary.subject.archived ? "Archiviert" : subjectTypeLabel(summary.subject.subjectType)}
+                </p>
+              </div>
+              <p className="text-2xl font-semibold text-ink">
+                {summary.semesterGrade === null ? "-" : summary.semesterGrade.toFixed(1)}
+              </p>
+            </div>
+            <p className="mt-3 text-sm text-black/60">
+              {summary.gradeCount} Noten, exakt {summary.exactAverage === null ? "-" : summary.exactAverage.toFixed(2)}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => onEdit(summary.subject)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
+              >
+                Bearbeiten
+              </button>
+              <button
+                onClick={() => onArchive(summary.subject.id)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
+              >
+                {summary.subject.archived ? "Aktivieren" : "Archivieren"}
+              </button>
+              <button
+                onClick={() => onDelete(summary.subject.id)}
+                className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
+              >
+                Loeschen
+              </button>
+            </div>
+          </article>
+        ))}
+        {summaries.length === 0 ? <p className="text-sm text-black/60">Noch keine Faecher erfasst.</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function TermsPanel({
+  terms,
+  onDelete,
+  onEdit,
+  onToggleActive,
+}: {
+  terms: DemoTerm[];
+  onDelete: (termId: string) => void;
+  onEdit: (term: DemoTerm) => void;
+  onToggleActive: (termId: string) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <h2 className="text-lg font-semibold text-ink">Semester</h2>
+      <div className="mt-3 overflow-hidden rounded-md border border-black/10">
+        {terms.map((term) => (
+          <div
+            key={term.id}
+            className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 p-4 last:border-b-0"
+          >
+            <div>
+              <p className="font-semibold text-ink">{term.name}</p>
+              <p className="text-sm text-black/60">
+                {formatDate(term.startDate) || "Offen"} bis {formatDate(term.endDate) || "offen"}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => onEdit(term)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
+              >
+                Bearbeiten
+              </button>
+              <button
+                onClick={() => onToggleActive(term.id)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
+              >
+                {term.isActive ? "Aktiv" : "Aktiv setzen"}
+              </button>
+              <button
+                onClick={() => onDelete(term.id)}
+                className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
+              >
+                Loeschen
+              </button>
+            </div>
+          </div>
+        ))}
+        {terms.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Semester erfasst.</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function GradesPanel({
+  grades,
+  requiredGrade,
+  subjects,
+  targetRounded,
+  terms,
+  upcomingWeight,
+  onDelete,
+  onEdit,
+  onTargetRoundedChange,
+  onUpcomingWeightChange,
+}: {
+  grades: DemoGrade[];
+  requiredGrade: number | null;
+  subjects: DemoSubject[];
+  targetRounded: string;
+  terms: DemoTerm[];
+  upcomingWeight: string;
+  onDelete: (gradeId: string) => void;
+  onEdit: (grade: DemoGrade) => void;
+  onTargetRoundedChange: (value: string) => void;
+  onUpcomingWeightChange: (value: string) => void;
+}) {
+  const [filters, setFilters] = useState<GradeFilters>(DEFAULT_GRADE_FILTERS);
+  const filteredGrades = useMemo(
+    () => filterAndSortDemoGrades(grades, subjects, terms, filters),
+    [filters, grades, subjects, terms],
+  );
+  const activeFilterLabels = useMemo(
+    () => buildDemoActiveFilterLabels(filters, subjects, terms),
+    [filters, subjects, terms],
+  );
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Noten</h2>
+          <p className="text-sm text-black/60">Lokale Demo-Noten mit Fach und Semester.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="grid gap-1 text-xs font-medium text-black/60">
+            Ziel
+            <input
+              value={targetRounded}
+              onChange={(event) => onTargetRoundedChange(event.target.value)}
+              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-black/60">
+            Gewicht
+            <input
+              value={upcomingWeight}
+              onChange={(event) => onUpcomingWeightChange(event.target.value)}
+              className="w-24 rounded-md border border-black/15 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-black/60">
+        Benoetigte Note:{" "}
+        <span className="text-lg font-semibold text-ink">
+          {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
+        </span>
+      </p>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1.6fr)_repeat(3,minmax(140px,1fr))]">
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Suche
+          <input
+            value={filters.search}
+            onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+            placeholder="Titel oder Notizen"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Fach
+          <select
+            value={filters.subjectId}
+            onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Faecher</option>
+            {subjects.map((subject) => (
+              <option key={subject.id} value={subject.id}>
+                {subject.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Semester
+          <select
+            value={filters.termId}
+            onChange={(event) => setFilters((current) => ({ ...current, termId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Semester</option>
+            <option value={NO_TERM_FILTER}>Kein Semester</option>
+            {terms.map((term) => (
+              <option key={term.id} value={term.id}>
+                {term.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Typ
+          <select
+            value={filters.type}
+            onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Typen</option>
+            {GRADE_TYPES.map((gradeType) => (
+              <option key={gradeType.value} value={gradeType.value}>
+                {gradeType.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Von
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Bis
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Sortierung
+          <select
+            value={filters.sort}
+            onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value as GradeSort }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            {GRADE_SORTS.map((sort) => (
+              <option key={sort.value} value={sort.value}>
+                {sort.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-xs font-medium text-black/60">
+          <input
+            type="checkbox"
+            checked={filters.belowFourOnly}
+            onChange={(event) => setFilters((current) => ({ ...current, belowFourOnly: event.target.checked }))}
+          />
+          Unter 4.0
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-black/60">
+        <p>
+          {filteredGrades.length} von {grades.length} Noten
+        </p>
+        {activeFilterLabels.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setFilters(DEFAULT_GRADE_FILTERS)}
+            className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-ink hover:border-black/30"
+          >
+            Filter zuruecksetzen
+          </button>
+        ) : null}
+      </div>
+      {activeFilterLabels.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {activeFilterLabels.map((label) => (
+            <span key={label} className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold text-black/60">
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-4 overflow-hidden rounded-md border border-black/10">
+        {filteredGrades.map((grade) => {
+          const subject = subjects.find((item) => item.id === grade.subjectId);
+          const term = terms.find((item) => item.id === grade.termId);
+
+          return (
+            <div
+              key={grade.id}
+              className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[1fr_auto_auto]"
+            >
+              <div>
+                <p className="font-semibold text-ink">{grade.title}</p>
+                <p className="text-sm text-black/60">
+                  {subject?.name ?? "Geloeschtes Fach"} / {term?.name ?? "kein Semester"} / {gradeTypeLabel(grade.type)}{" "}
+                  / Gewicht {grade.weight}
+                </p>
+                {grade.date || grade.notes ? (
+                  <p className="mt-1 text-xs text-black/45">
+                    {formatDate(grade.date) ?? "Kein Datum"}
+                    {grade.notes ? ` - ${grade.notes}` : ""}
+                  </p>
+                ) : null}
+              </div>
+              <p className="text-2xl font-semibold text-ink">{grade.value.toFixed(2)}</p>
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                <button
+                  onClick={() => onEdit(grade)}
+                  className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
+                >
+                  Bearbeiten
+                </button>
+                <button
+                  onClick={() => onDelete(grade.id)}
+                  className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
+                >
+                  Loeschen
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {grades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
+        {grades.length > 0 && filteredGrades.length === 0 ? (
+          <p className="p-4 text-sm text-black/60">Keine Noten passen zu den aktuellen Filtern.</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <article className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <p className="text-sm text-black/60">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-ink">{value}</p>
+      <p className="mt-2 truncate text-2xl font-semibold text-ink">{value}</p>
     </article>
   );
 }
 
-function isDemoState(value: unknown): value is DemoState {
-  if (!value || typeof value !== "object") return false;
+type SubjectSummary = {
+  subject: DemoSubject;
+  gradeCount: number;
+  exactAverage: number | null;
+  semesterGrade: number | null;
+};
 
-  const candidate = value as Partial<DemoState>;
+function buildSubjectSummaries(subjects: DemoSubject[], grades: DemoGrade[]): SubjectSummary[] {
+  return subjects.map((subject) => {
+    const subjectGrades = grades.filter((grade) => grade.subjectId === subject.id);
+    const items = subjectGrades.map((grade) => ({ value: grade.value, weight: grade.weight }));
 
-  return (
-    Array.isArray(candidate.subjects) &&
-    candidate.subjects.every((subject) => typeof subject.subjectType === "string") &&
-    Array.isArray(candidate.grades) &&
-    candidate.grades.every((grade) => typeof grade.type === "string")
-  );
+    return {
+      subject,
+      gradeCount: subjectGrades.length,
+      exactAverage: calculateWeightedAverage(items),
+      semesterGrade: calculateSemesterGrade(items),
+    };
+  });
+}
+
+function upsertTerm(terms: DemoTerm[], term: DemoTerm, editingTermId: string | null): DemoTerm[] {
+  const nextTerms = editingTermId
+    ? terms.map((current) => (current.id === editingTermId ? term : current))
+    : [term, ...terms];
+
+  if (!term.isActive) return nextTerms;
+
+  return nextTerms.map((current) => ({
+    ...current,
+    isActive: current.id === term.id,
+  }));
+}
+
+function filterAndSortDemoGrades(
+  grades: DemoGrade[],
+  subjects: DemoSubject[],
+  terms: DemoTerm[],
+  filters: GradeFilters,
+): DemoGrade[] {
+  return grades
+    .filter((grade) => matchesDemoGradeFilters(grade, filters))
+    .sort((left, right) => {
+      const compared = compareDemoGrades(left, right, subjects, terms, filters.sort);
+      if (compared !== 0) return compared;
+      return dateSortValue(right.date) - dateSortValue(left.date) || left.title.localeCompare(right.title);
+    });
+}
+
+function matchesDemoGradeFilters(grade: DemoGrade, filters: GradeFilters): boolean {
+  const search = filters.search.trim().toLowerCase();
+  if (search && !`${grade.title} ${grade.notes ?? ""}`.toLowerCase().includes(search)) return false;
+  if (filters.subjectId && grade.subjectId !== filters.subjectId) return false;
+  if (filters.termId === NO_TERM_FILTER && grade.termId !== null) return false;
+  if (filters.termId && filters.termId !== NO_TERM_FILTER && grade.termId !== filters.termId) return false;
+  if (filters.type && grade.type !== filters.type) return false;
+  if (filters.belowFourOnly && grade.value >= 4) return false;
+
+  const gradeDate = grade.date ?? "";
+  if (filters.dateFrom && (!gradeDate || gradeDate < filters.dateFrom)) return false;
+  if (filters.dateTo && (!gradeDate || gradeDate > filters.dateTo)) return false;
+
+  return true;
+}
+
+function compareDemoGrades(
+  left: DemoGrade,
+  right: DemoGrade,
+  subjects: DemoSubject[],
+  terms: DemoTerm[],
+  sort: GradeSort,
+): number {
+  switch (sort) {
+    case "date-asc":
+      return dateSortValue(left.date) - dateSortValue(right.date);
+    case "grade-desc":
+      return right.value - left.value;
+    case "grade-asc":
+      return left.value - right.value;
+    case "subject-asc":
+      return demoSubjectLabel(left, subjects).localeCompare(demoSubjectLabel(right, subjects));
+    case "subject-desc":
+      return demoSubjectLabel(right, subjects).localeCompare(demoSubjectLabel(left, subjects));
+    case "term-asc":
+      return demoTermLabel(left, terms).localeCompare(demoTermLabel(right, terms));
+    case "term-desc":
+      return demoTermLabel(right, terms).localeCompare(demoTermLabel(left, terms));
+    case "weight-desc":
+      return right.weight - left.weight;
+    case "weight-asc":
+      return left.weight - right.weight;
+    case "date-desc":
+    default:
+      return dateSortValue(right.date) - dateSortValue(left.date);
+  }
+}
+
+function buildDemoActiveFilterLabels(filters: GradeFilters, subjects: DemoSubject[], terms: DemoTerm[]): string[] {
+  const labels: string[] = [];
+  const subject = subjects.find((item) => item.id === filters.subjectId);
+  const term = terms.find((item) => item.id === filters.termId);
+  const sort = GRADE_SORTS.find((item) => item.value === filters.sort);
+
+  if (filters.search.trim()) labels.push(`Suche: ${filters.search.trim()}`);
+  if (subject) labels.push(`Fach: ${subject.name}`);
+  if (filters.termId === NO_TERM_FILTER) labels.push("Semester: keines");
+  if (term) labels.push(`Semester: ${term.name}`);
+  if (filters.type) labels.push(`Typ: ${gradeTypeLabel(filters.type as GradeType)}`);
+  if (filters.dateFrom) labels.push(`Von: ${filters.dateFrom}`);
+  if (filters.dateTo) labels.push(`Bis: ${filters.dateTo}`);
+  if (filters.belowFourOnly) labels.push("Unter 4.0");
+  if (sort && filters.sort !== DEFAULT_GRADE_FILTERS.sort) labels.push(`Sort: ${sort.label}`);
+
+  return labels;
+}
+
+function demoSubjectLabel(grade: DemoGrade, subjects: DemoSubject[]): string {
+  return subjects.find((subject) => subject.id === grade.subjectId)?.name ?? "Geloeschtes Fach";
+}
+
+function demoTermLabel(grade: DemoGrade, terms: DemoTerm[]): string {
+  return terms.find((term) => term.id === grade.termId)?.name ?? "kein Semester";
+}
+
+function dateSortValue(value: string | null): number {
+  if (!value) return 0;
+  return new Date(value).getTime();
+}
+
+function loadStoredState(): DemoState {
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) return cloneDemoState(demoSeed);
+
+  try {
+    return normalizeDemoState(JSON.parse(raw));
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+    return cloneDemoState(demoSeed);
+  }
+}
+
+function normalizeDemoState(value: unknown): DemoState {
+  if (!isRecord(value)) return cloneDemoState(demoSeed);
+
+  const subjects = Array.isArray(value.subjects)
+    ? value.subjects.map(normalizeSubject).filter((subject): subject is DemoSubject => subject !== null)
+    : [];
+  const terms = Array.isArray(value.terms)
+    ? value.terms.map(normalizeTerm).filter((term): term is DemoTerm => term !== null)
+    : cloneDemoState(demoSeed).terms;
+  const subjectIds = new Set(subjects.map((subject) => subject.id));
+  const termIds = new Set(terms.map((term) => term.id));
+  const grades = Array.isArray(value.grades)
+    ? value.grades
+        .map((grade) => normalizeGrade(grade, subjectIds, termIds))
+        .filter((grade): grade is DemoGrade => grade !== null)
+    : [];
+
+  return {
+    subjects: subjects.length > 0 ? subjects : cloneDemoState(demoSeed).subjects,
+    terms,
+    grades,
+  };
+}
+
+function normalizeSubject(value: unknown): DemoSubject | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
+
+  return {
+    id: value.id,
+    name: value.name,
+    shortName: typeof value.shortName === "string" ? value.shortName : null,
+    color: typeof value.color === "string" ? value.color : DEFAULT_COLOR,
+    subjectType: isSubjectType(value.subjectType) ? value.subjectType : "regular",
+    archived: typeof value.archived === "boolean" ? value.archived : false,
+  };
+}
+
+function normalizeTerm(value: unknown): DemoTerm | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
+
+  return {
+    id: value.id,
+    name: value.name,
+    startDate: typeof value.startDate === "string" ? value.startDate : null,
+    endDate: typeof value.endDate === "string" ? value.endDate : null,
+    isActive: typeof value.isActive === "boolean" ? value.isActive : false,
+  };
+}
+
+function normalizeGrade(value: unknown, subjectIds: Set<string>, termIds: Set<string>): DemoGrade | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.subjectId !== "string" ||
+    typeof value.title !== "string" ||
+    !subjectIds.has(value.subjectId)
+  ) {
+    return null;
+  }
+
+  const gradeValue = Number(value.value);
+  const weight = Number(value.weight);
+  if (!Number.isFinite(gradeValue) || !Number.isFinite(weight)) return null;
+
+  const rawTermId = typeof value.termId === "string" && termIds.has(value.termId) ? value.termId : null;
+
+  return {
+    id: value.id,
+    subjectId: value.subjectId,
+    termId: rawTermId,
+    title: value.title,
+    value: gradeValue,
+    weight,
+    date: typeof value.date === "string" ? value.date : null,
+    type: isGradeType(value.type) ? value.type : "other",
+    notes: typeof value.notes === "string" ? value.notes : null,
+  };
+}
+
+function cloneDemoState(state: DemoState): DemoState {
+  return {
+    subjects: state.subjects.map((subject) => ({ ...subject })),
+    terms: state.terms.map((term) => ({ ...term })),
+    grades: state.grades.map((grade) => ({ ...grade })),
+  };
+}
+
+function subjectTypeLabel(value: SubjectType): string {
+  return SUBJECT_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function gradeTypeLabel(value: GradeType): string {
+  return GRADE_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function formatDate(value: string | null): string | null {
+  if (!value) return null;
+  return new Intl.DateTimeFormat("de-CH").format(new Date(value));
+}
+
+function createId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSubjectType(value: unknown): value is SubjectType {
+  return SUBJECT_TYPES.some((type) => type.value === value);
+}
+
+function isGradeType(value: unknown): value is GradeType {
+  return GRADE_TYPES.some((type) => type.value === value);
 }

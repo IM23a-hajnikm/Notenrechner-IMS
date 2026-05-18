@@ -56,6 +56,21 @@ npm test
 npm run build
 ```
 
+## Continuous Integration
+
+Pull requests and pushes to `master` or `main` run the GitHub Actions quality gate in `.github/workflows/quality.yml`.
+
+The workflow uses Node.js 20 on `ubuntu-latest`, installs dependencies with `npm ci`, generates the Prisma client, validates `prisma/schema.prisma` without a live database, then runs:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+The CI `DATABASE_URL` is a placeholder used for Prisma schema validation only. Deployment environments still need real secrets and database credentials.
+
 Validate the Prisma schema without requiring a running database:
 
 ```bash
@@ -73,6 +88,8 @@ The MVP must support two modes:
 
 Local frontend API calls use `NEXT_PUBLIC_API_URL`; by default this points to `http://localhost:3001`.
 
+Production deployment variables, CORS, cookie settings, migrations, and smoke tests are documented in [docs/deployment.md](docs/deployment.md).
+
 Calculator routes:
 
 - `/calculators/required-grade`
@@ -89,6 +106,7 @@ Auth:
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /auth/refresh`
 - `POST /auth/logout`
 - `GET /auth/me`
 

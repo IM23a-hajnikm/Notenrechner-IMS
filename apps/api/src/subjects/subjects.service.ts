@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
@@ -6,7 +6,7 @@ import type { CreateSubjectDto, UpdateSubjectDto } from "./subjects.dto";
 
 @Injectable()
 export class SubjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   findMany(userId: string) {
     return this.prisma.subject.findMany({

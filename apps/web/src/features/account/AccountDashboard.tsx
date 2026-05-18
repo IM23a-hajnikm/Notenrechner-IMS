@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   calculateRequiredGrade,
   calculateSemesterGrade,
@@ -25,11 +25,14 @@ import {
   deleteTerm,
   loadAccountSnapshot,
   logoutAccount,
+  updateGrade,
   updateSubject,
   updateTerm,
 } from "./api-client";
 import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
+
+const DEFAULT_SUBJECT_COLOR = "#1f7a68";
 
 const SUBJECT_TYPES: { value: SubjectType; label: string }[] = [
   { value: "regular", label: "Regulaer" },
@@ -51,8 +54,100 @@ const GRADE_TYPES: { value: GradeType; label: string }[] = [
   { value: "other", label: "Andere" },
 ];
 
+type AccountView = "dashboard" | "subjects" | "terms" | "grades";
+type CreateSubjectInput = Parameters<typeof createSubject>[0];
+type CreateTermInput = Parameters<typeof createTerm>[0];
+type CreateGradeInput = Parameters<typeof createGrade>[0];
+type UpdateSubjectInput = Parameters<typeof updateSubject>[1];
+type UpdateTermInput = Parameters<typeof updateTerm>[1];
+type UpdateGradeInput = Parameters<typeof updateGrade>[1];
+
+type SubjectFormInput = {
+  name: string;
+  shortName: string | null;
+  color: string | null;
+  subjectType: SubjectType;
+  archived: boolean;
+};
+
+type TermFormInput = {
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  isActive: boolean;
+};
+
+type GradeFormInput = {
+  subjectId: string;
+  termId: string | null;
+  title: string;
+  gradeValue: number;
+  weight: number;
+  date: string | null;
+  type: GradeType;
+  notes: string | null;
+};
+
+type GradeSort =
+  | "date-desc"
+  | "date-asc"
+  | "grade-desc"
+  | "grade-asc"
+  | "subject-asc"
+  | "subject-desc"
+  | "term-asc"
+  | "term-desc"
+  | "weight-desc"
+  | "weight-asc";
+
+type GradeFilters = {
+  search: string;
+  subjectId: string;
+  termId: string;
+  type: string;
+  dateFrom: string;
+  dateTo: string;
+  belowFourOnly: boolean;
+  sort: GradeSort;
+};
+
+const ACCOUNT_VIEWS: { value: AccountView; label: string; description: string }[] = [
+  { value: "dashboard", label: "Dashboard", description: "Ueberblick" },
+  { value: "subjects", label: "Faecher", description: "Struktur" },
+  { value: "terms", label: "Semester", description: "Zeitraeume" },
+  { value: "grades", label: "Noten", description: "Erfassung" },
+];
+
+const NO_TERM_FILTER = "__none";
+
+const DEFAULT_GRADE_FILTERS: GradeFilters = {
+  search: "",
+  subjectId: "",
+  termId: "",
+  type: "",
+  dateFrom: "",
+  dateTo: "",
+  belowFourOnly: false,
+  sort: "date-desc",
+};
+
+const GRADE_SORTS: { value: GradeSort; label: string }[] = [
+  { value: "date-desc", label: "Datum neu zuerst" },
+  { value: "date-asc", label: "Datum alt zuerst" },
+  { value: "grade-desc", label: "Note hoch zuerst" },
+  { value: "grade-asc", label: "Note tief zuerst" },
+  { value: "subject-asc", label: "Fach A-Z" },
+  { value: "subject-desc", label: "Fach Z-A" },
+  { value: "term-asc", label: "Semester A-Z" },
+  { value: "term-desc", label: "Semester Z-A" },
+  { value: "weight-desc", label: "Gewicht hoch zuerst" },
+  { value: "weight-asc", label: "Gewicht tief zuerst" },
+];
+
 export function AccountDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentView = parseAccountView(searchParams.get("view"));
   const [snapshot, setSnapshot] = useState<AccountSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,15 +180,17 @@ export function AccountDashboard() {
     setSnapshot(data);
   }
 
-  async function mutate(action: () => Promise<unknown>) {
+  async function mutate(action: () => Promise<unknown>): Promise<boolean> {
     setError(null);
     setIsMutating(true);
 
     try {
       await action();
       await refresh();
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Die Aktion konnte nicht gespeichert werden.");
+      return false;
     } finally {
       setIsMutating(false);
     }
@@ -108,6 +205,18 @@ export function AccountDashboard() {
       setError(caught instanceof Error ? caught.message : "Logout fehlgeschlagen.");
       setIsMutating(false);
     }
+  }
+
+  function setCurrentView(nextView: AccountView) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextView === "dashboard") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/account?${query}` : "/account");
   }
 
   if (isLoading) {
@@ -146,8 +255,6 @@ export function AccountDashboard() {
     );
   }
 
-  const certificationStatus = deriveSavedCertificationStatus(snapshot.subjects, snapshot.grades);
-
   return (
     <main className="min-h-screen bg-[#f6f8f7]">
       <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8">
@@ -184,45 +291,297 @@ export function AccountDashboard() {
 
         {error ? <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
-        <AccountSummary snapshot={snapshot} />
-        <CertificationStatusCards status={certificationStatus} />
+        <AccountViewNav currentView={currentView} onChange={setCurrentView} snapshot={snapshot} />
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-          <div className="grid gap-4">
-            <SubjectForm disabled={isMutating} onSubmit={(input) => mutate(() => createSubject(input))} />
-            <TermForm disabled={isMutating} onSubmit={(input) => mutate(() => createTerm(input))} />
-            <CertificationInputGuide />
-            <GradeForm
-              disabled={isMutating}
-              subjects={snapshot.subjects.filter((subject) => !subject.archived)}
-              terms={snapshot.terms}
-              onSubmit={(input) => mutate(() => createGrade(input))}
-            />
-          </div>
+        {currentView === "dashboard" ? (
+          <DashboardView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateGrade={(input) => mutate(() => createGrade(input))}
+          />
+        ) : null}
 
-          <div className="grid gap-4">
-            <SubjectsPanel
-              subjects={snapshot.subjects}
-              grades={snapshot.grades}
-              disabled={isMutating}
-              onArchive={(subject) => mutate(() => updateSubject(subject.id, { archived: !subject.archived }))}
-              onDelete={(subject) => mutate(() => deleteSubject(subject.id))}
-            />
-            <TermsPanel
-              terms={snapshot.terms}
-              disabled={isMutating}
-              onToggleActive={(term) => mutate(() => updateTerm(term.id, { isActive: !term.isActive }))}
-              onDelete={(term) => mutate(() => deleteTerm(term.id))}
-            />
-            <GradesPanel
-              grades={snapshot.grades}
-              disabled={isMutating}
-              onDelete={(grade) => mutate(() => deleteGrade(grade.id))}
-            />
-          </div>
-        </section>
+        {currentView === "subjects" ? (
+          <SubjectsView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onArchive={(subject) => mutate(() => updateSubject(subject.id, { archived: !subject.archived }))}
+            onCreateSubject={(input) => mutate(() => createSubject(input))}
+            onDelete={(subject) => mutate(() => deleteSubject(subject.id))}
+            onUpdateSubject={(subject, input) => mutate(() => updateSubject(subject.id, input))}
+          />
+        ) : null}
+
+        {currentView === "terms" ? (
+          <TermsView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateTerm={(input) => mutate(() => createTerm(input))}
+            onDelete={(term) => mutate(() => deleteTerm(term.id))}
+            onToggleActive={(term) => mutate(() => updateTerm(term.id, { isActive: !term.isActive }))}
+            onUpdateTerm={(term, input) => mutate(() => updateTerm(term.id, input))}
+          />
+        ) : null}
+
+        {currentView === "grades" ? (
+          <GradesView
+            disabled={isMutating}
+            snapshot={snapshot}
+            onCreateGrade={(input) => mutate(() => createGrade(input))}
+            onDelete={(grade) => mutate(() => deleteGrade(grade.id))}
+            onUpdateGrade={(grade, input) => mutate(() => updateGrade(grade.id, input))}
+          />
+        ) : null}
       </div>
     </main>
+  );
+}
+
+function AccountViewNav({
+  currentView,
+  onChange,
+  snapshot,
+}: {
+  currentView: AccountView;
+  onChange: (view: AccountView) => void;
+  snapshot: AccountSnapshot;
+}) {
+  const counts: Record<AccountView, string> = {
+    dashboard: String(snapshot.grades.length),
+    subjects: String(snapshot.subjects.filter((subject) => !subject.archived).length),
+    terms: String(snapshot.terms.length),
+    grades: String(snapshot.grades.length),
+  };
+
+  return (
+    <section className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {ACCOUNT_VIEWS.map((view) => {
+        const isActive = currentView === view.value;
+
+        return (
+          <button
+            key={view.value}
+            onClick={() => onChange(view.value)}
+            className={`rounded-lg border px-4 py-3 text-left transition ${
+              isActive
+                ? "border-alpine bg-alpine text-white shadow-soft"
+                : "border-black/10 bg-white text-ink hover:border-black/25"
+            }`}
+          >
+            <span className="flex items-center justify-between gap-3">
+              <span className="font-semibold">{view.label}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  isActive ? "bg-white/20 text-white" : "bg-black/5 text-black/60"
+                }`}
+              >
+                {counts[view.value]}
+              </span>
+            </span>
+            <span className={`mt-1 block text-sm ${isActive ? "text-white/80" : "text-black/55"}`}>
+              {view.description}
+            </span>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
+function DashboardView({
+  disabled,
+  snapshot,
+  onCreateGrade,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
+}) {
+  const certificationStatus = deriveSavedCertificationStatus(snapshot.subjects, snapshot.grades);
+
+  return (
+    <>
+      <AccountSummary snapshot={snapshot} />
+      <CertificationStatusCards status={certificationStatus} />
+      <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+        <div className="grid gap-4">
+          <GradeForm
+            disabled={disabled}
+            subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+            terms={snapshot.terms}
+            onSubmit={onCreateGrade}
+          />
+          <CertificationInputGuide />
+        </div>
+        <div className="grid gap-4">
+          <RequiredGradeShortcut snapshot={snapshot} />
+          <RecentGrades grades={snapshot.grades} />
+        </div>
+      </section>
+    </>
+  );
+}
+
+function SubjectsView({
+  disabled,
+  snapshot,
+  onArchive,
+  onCreateSubject,
+  onDelete,
+  onUpdateSubject,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onArchive: (subject: AccountSubject) => Promise<boolean>;
+  onCreateSubject: (input: CreateSubjectInput) => Promise<boolean>;
+  onDelete: (subject: AccountSubject) => Promise<boolean>;
+  onUpdateSubject: (subject: AccountSubject, input: UpdateSubjectInput) => Promise<boolean>;
+}) {
+  const [editingSubject, setEditingSubject] = useState<AccountSubject | null>(null);
+
+  async function submitSubject(input: SubjectFormInput) {
+    const saved = editingSubject
+      ? await onUpdateSubject(editingSubject, input)
+      : await onCreateSubject({
+          name: input.name,
+          ...(input.shortName ? { shortName: input.shortName } : {}),
+          ...(input.color ? { color: input.color } : {}),
+          subjectType: input.subjectType,
+        });
+
+    if (saved) setEditingSubject(null);
+    return saved;
+  }
+
+  async function archiveSubject(subject: AccountSubject) {
+    const saved = await onArchive(subject);
+    if (saved && editingSubject?.id === subject.id) setEditingSubject(null);
+  }
+
+  async function deleteSubject(subject: AccountSubject) {
+    const deleted = await onDelete(subject);
+    if (deleted && editingSubject?.id === subject.id) setEditingSubject(null);
+  }
+
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <SubjectForm
+        key={editingSubject?.id ?? "create-subject"}
+        disabled={disabled}
+        editingSubject={editingSubject}
+        onCancelEdit={() => setEditingSubject(null)}
+        onSubmit={submitSubject}
+      />
+      <SubjectsPanel
+        subjects={snapshot.subjects}
+        grades={snapshot.grades}
+        disabled={disabled}
+        onArchive={(subject) => void archiveSubject(subject)}
+        onDelete={(subject) => void deleteSubject(subject)}
+        onEdit={setEditingSubject}
+      />
+    </section>
+  );
+}
+
+function TermsView({
+  disabled,
+  snapshot,
+  onCreateTerm,
+  onDelete,
+  onToggleActive,
+  onUpdateTerm,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateTerm: (input: CreateTermInput) => Promise<boolean>;
+  onDelete: (term: AccountTerm) => Promise<boolean>;
+  onToggleActive: (term: AccountTerm) => Promise<boolean>;
+  onUpdateTerm: (term: AccountTerm, input: UpdateTermInput) => Promise<boolean>;
+}) {
+  const [editingTerm, setEditingTerm] = useState<AccountTerm | null>(null);
+
+  async function submitTerm(input: TermFormInput) {
+    const saved = editingTerm ? await onUpdateTerm(editingTerm, input) : await onCreateTerm(input);
+    if (saved) setEditingTerm(null);
+    return saved;
+  }
+
+  async function toggleTermActive(term: AccountTerm) {
+    const saved = await onToggleActive(term);
+    if (saved && editingTerm?.id === term.id) setEditingTerm(null);
+  }
+
+  async function deleteTerm(term: AccountTerm) {
+    const deleted = await onDelete(term);
+    if (deleted && editingTerm?.id === term.id) setEditingTerm(null);
+  }
+
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <TermForm
+        key={editingTerm?.id ?? "create-term"}
+        disabled={disabled}
+        editingTerm={editingTerm}
+        onCancelEdit={() => setEditingTerm(null)}
+        onSubmit={submitTerm}
+      />
+      <TermsPanel
+        terms={snapshot.terms}
+        disabled={disabled}
+        onDelete={(term) => void deleteTerm(term)}
+        onEdit={setEditingTerm}
+        onToggleActive={(term) => void toggleTermActive(term)}
+      />
+    </section>
+  );
+}
+
+function GradesView({
+  disabled,
+  snapshot,
+  onCreateGrade,
+  onDelete,
+  onUpdateGrade,
+}: {
+  disabled: boolean;
+  snapshot: AccountSnapshot;
+  onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
+  onDelete: (grade: AccountGrade) => Promise<boolean>;
+  onUpdateGrade: (grade: AccountGrade, input: UpdateGradeInput) => Promise<boolean>;
+}) {
+  const [editingGrade, setEditingGrade] = useState<AccountGrade | null>(null);
+  const formSubjects = editingGrade ? snapshot.subjects : snapshot.subjects.filter((subject) => !subject.archived);
+
+  async function submitGrade(input: GradeFormInput) {
+    const saved = editingGrade ? await onUpdateGrade(editingGrade, input) : await onCreateGrade(input);
+    if (saved) setEditingGrade(null);
+    return saved;
+  }
+
+  async function deleteGrade(grade: AccountGrade) {
+    const deleted = await onDelete(grade);
+    if (deleted && editingGrade?.id === grade.id) setEditingGrade(null);
+  }
+
+  return (
+    <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <GradeForm
+        key={editingGrade?.id ?? "create-grade"}
+        disabled={disabled}
+        editingGrade={editingGrade}
+        subjects={formSubjects}
+        terms={snapshot.terms}
+        onCancelEdit={() => setEditingGrade(null)}
+        onSubmit={submitGrade}
+      />
+      <GradesPanel
+        grades={snapshot.grades}
+        disabled={disabled}
+        onDelete={(grade) => void deleteGrade(grade)}
+        onEdit={setEditingGrade}
+      />
+    </section>
   );
 }
 
@@ -248,36 +607,112 @@ function AccountSummary({ snapshot }: { snapshot: AccountSnapshot }) {
   );
 }
 
+function RequiredGradeShortcut({ snapshot }: { snapshot: AccountSnapshot }) {
+  const items = snapshot.grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) }));
+  const exactAverage = calculateWeightedAverage(items);
+  const semesterGrade = calculateSemesterGrade(items);
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Benoetigte Note planen</h2>
+          <p className="text-sm text-black/60">Starte mit deinem aktuellen Account-Schnitt.</p>
+        </div>
+        <Link
+          href="/calculators/required-grade"
+          className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"
+        >
+          Rechner oeffnen
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-md border border-black/10 p-4">
+          <p className="text-sm text-black/60">Aktueller Schnitt</p>
+          <p className="mt-2 text-2xl font-semibold text-ink">
+            {exactAverage === null ? "-" : exactAverage.toFixed(2)}
+          </p>
+        </div>
+        <div className="rounded-md border border-black/10 p-4">
+          <p className="text-sm text-black/60">Gerundete Note</p>
+          <p className="mt-2 text-2xl font-semibold text-ink">
+            {semesterGrade === null ? "-" : semesterGrade.toFixed(1)}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentGrades({ grades }: { grades: AccountGrade[] }) {
+  const recentGrades = [...grades].sort(byGradeDateDesc).slice(0, 5);
+
+  return (
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+      <h2 className="text-lg font-semibold text-ink">Letzte Noten</h2>
+      <div className="mt-3 overflow-hidden rounded-md border border-black/10">
+        {recentGrades.map((grade) => (
+          <div
+            key={grade.id}
+            className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 sm:grid-cols-[1fr_auto]"
+          >
+            <div>
+              <p className="font-semibold text-ink">{grade.title}</p>
+              <p className="text-sm text-black/60">
+                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / {formatDate(grade.date) ?? "ohne Datum"}
+              </p>
+            </div>
+            <p className="text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
+          </div>
+        ))}
+        {recentGrades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
+      </div>
+    </section>
+  );
+}
+
 function SubjectForm({
   disabled,
+  editingSubject,
+  onCancelEdit,
   onSubmit,
 }: {
   disabled: boolean;
-  onSubmit: (input: { name: string; shortName?: string; color?: string; subjectType?: SubjectType }) => void;
+  editingSubject?: AccountSubject | null;
+  onCancelEdit?: () => void;
+  onSubmit: (input: SubjectFormInput) => Promise<boolean>;
 }) {
-  const [name, setName] = useState("");
-  const [shortName, setShortName] = useState("");
-  const [color, setColor] = useState("#1f7a68");
-  const [subjectType, setSubjectType] = useState<SubjectType>("regular");
+  const isEditing = Boolean(editingSubject);
+  const [name, setName] = useState(editingSubject?.name ?? "");
+  const [shortName, setShortName] = useState(editingSubject?.shortName ?? "");
+  const [color, setColor] = useState(editingSubject?.color ?? DEFAULT_SUBJECT_COLOR);
+  const [subjectType, setSubjectType] = useState<SubjectType>(editingSubject?.subjectType ?? "regular");
+  const [archived, setArchived] = useState(editingSubject?.archived ?? false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
 
-    onSubmit({
+    const saved = await onSubmit({
       name: name.trim(),
-      ...(shortName.trim() ? { shortName: shortName.trim() } : {}),
-      color,
+      shortName: shortName.trim() || null,
+      color: color || null,
       subjectType,
+      archived,
     });
+    if (!saved) return;
+
     setName("");
     setShortName("");
+    setColor(DEFAULT_SUBJECT_COLOR);
     setSubjectType("regular");
+    setArchived(false);
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Fach erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Fach bearbeiten" : "Fach erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Name
@@ -321,12 +756,30 @@ function SubjectForm({
             ))}
           </select>
         </label>
-        <button
-          disabled={disabled}
-          className="rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Fach speichern
-        </button>
+        {isEditing ? (
+          <label className="flex items-center gap-2 text-sm font-medium text-black/70">
+            <input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />
+            Archiviert
+          </label>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled}
+            className="rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Fach aktualisieren" : "Fach speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -334,35 +787,43 @@ function SubjectForm({
 
 function TermForm({
   disabled,
+  editingTerm,
+  onCancelEdit,
   onSubmit,
 }: {
   disabled: boolean;
-  onSubmit: (input: { name: string; startDate?: string | null; endDate?: string | null; isActive?: boolean }) => void;
+  editingTerm?: AccountTerm | null;
+  onCancelEdit?: () => void;
+  onSubmit: (input: TermFormInput) => Promise<boolean>;
 }) {
-  const [name, setName] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isActive, setIsActive] = useState(false);
+  const isEditing = Boolean(editingTerm);
+  const [name, setName] = useState(editingTerm?.name ?? "");
+  const [startDate, setStartDate] = useState(dateInputValue(editingTerm?.startDate ?? null));
+  const [endDate, setEndDate] = useState(dateInputValue(editingTerm?.endDate ?? null));
+  const [isActive, setIsActive] = useState(editingTerm?.isActive ?? false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
 
-    onSubmit({
+    const saved = await onSubmit({
       name: name.trim(),
       startDate: startDate || null,
       endDate: endDate || null,
       isActive,
     });
+    if (!saved) return;
+
     setName("");
     setStartDate("");
     setEndDate("");
     setIsActive(false);
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Semester erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Semester bearbeiten" : "Semester erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Name
@@ -398,12 +859,24 @@ function TermForm({
           <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
           Aktives Semester
         </label>
-        <button
-          disabled={disabled}
-          className="rounded-md bg-lake px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Semester speichern
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled}
+            className="rounded-md bg-lake px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Semester aktualisieren" : "Semester speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -411,36 +884,32 @@ function TermForm({
 
 function GradeForm({
   disabled,
+  editingGrade,
+  onCancelEdit,
   subjects,
   terms,
   onSubmit,
 }: {
   disabled: boolean;
+  editingGrade?: AccountGrade | null;
+  onCancelEdit?: () => void;
   subjects: AccountSubject[];
   terms: AccountTerm[];
-  onSubmit: (input: {
-    subjectId: string;
-    termId?: string | null;
-    title: string;
-    gradeValue: number;
-    weight?: number;
-    date?: string | null;
-    type?: GradeType;
-    notes?: string | null;
-  }) => void;
+  onSubmit: (input: GradeFormInput) => Promise<boolean>;
 }) {
-  const [subjectId, setSubjectId] = useState("");
-  const [termId, setTermId] = useState("");
-  const [title, setTitle] = useState("");
-  const [gradeValueInput, setGradeValueInput] = useState("4.5");
-  const [weightInput, setWeightInput] = useState("1");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [type, setType] = useState<GradeType>("exam");
-  const [notes, setNotes] = useState("");
+  const isEditing = Boolean(editingGrade);
+  const [subjectId, setSubjectId] = useState(editingGrade?.subjectId ?? "");
+  const [termId, setTermId] = useState(editingGrade?.termId ?? "");
+  const [title, setTitle] = useState(editingGrade?.title ?? "");
+  const [gradeValueInput, setGradeValueInput] = useState(editingGrade ? String(gradeValue(editingGrade)) : "4.5");
+  const [weightInput, setWeightInput] = useState(editingGrade ? String(gradeWeight(editingGrade)) : "1");
+  const [date, setDate] = useState(editingGrade ? dateInputValue(editingGrade.date) : today());
+  const [type, setType] = useState<GradeType>(editingGrade?.type ?? "exam");
+  const [notes, setNotes] = useState(editingGrade?.notes ?? "");
 
   const selectedSubjectId = subjectId || subjects[0]?.id || "";
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const parsedGrade = Number(gradeValueInput);
@@ -458,7 +927,7 @@ function GradeForm({
       return;
     }
 
-    onSubmit({
+    const saved = await onSubmit({
       subjectId: selectedSubjectId,
       termId: termId || null,
       title: title.trim(),
@@ -468,15 +937,20 @@ function GradeForm({
       type,
       notes: notes.trim() || null,
     });
+    if (!saved) return;
+
     setTitle("");
     setGradeValueInput("4.5");
     setWeightInput("1");
+    setDate(today());
+    setType("exam");
     setNotes("");
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Note erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Note bearbeiten" : "Note erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Fach
@@ -574,12 +1048,24 @@ function GradeForm({
             className="resize-none rounded-md border border-black/15 px-3 py-2"
           />
         </label>
-        <button
-          disabled={disabled || subjects.length === 0}
-          className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Note speichern
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled || subjects.length === 0}
+            className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Note aktualisieren" : "Note speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -591,12 +1077,14 @@ function SubjectsPanel({
   disabled,
   onArchive,
   onDelete,
+  onEdit,
 }: {
   subjects: AccountSubject[];
   grades: AccountGrade[];
   disabled: boolean;
   onArchive: (subject: AccountSubject) => void;
   onDelete: (subject: AccountSubject) => void;
+  onEdit: (subject: AccountSubject) => void;
 }) {
   const summaries = buildSubjectSummaries(subjects, grades);
 
@@ -611,7 +1099,7 @@ function SubjectsPanel({
                 <div className="flex items-center gap-2">
                   <span
                     className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: summary.subject.color ?? "#1f7a68" }}
+                    style={{ backgroundColor: summary.subject.color ?? DEFAULT_SUBJECT_COLOR }}
                     aria-hidden
                   />
                   <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
@@ -630,6 +1118,13 @@ function SubjectsPanel({
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 disabled={disabled}
+                onClick={() => onEdit(summary.subject)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
                 onClick={() => onArchive(summary.subject)}
                 className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
               >
@@ -637,7 +1132,11 @@ function SubjectsPanel({
               </button>
               <button
                 disabled={disabled}
-                onClick={() => onDelete(summary.subject)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Fach "${summary.subject.name}" wirklich loeschen?`)) {
+                    onDelete(summary.subject);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
               >
                 Loeschen
@@ -654,11 +1153,13 @@ function SubjectsPanel({
 function TermsPanel({
   terms,
   disabled,
+  onEdit,
   onToggleActive,
   onDelete,
 }: {
   terms: AccountTerm[];
   disabled: boolean;
+  onEdit: (term: AccountTerm) => void;
   onToggleActive: (term: AccountTerm) => void;
   onDelete: (term: AccountTerm) => void;
 }) {
@@ -680,6 +1181,13 @@ function TermsPanel({
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={disabled}
+                onClick={() => onEdit(term)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
                 onClick={() => onToggleActive(term)}
                 className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
               >
@@ -687,7 +1195,11 @@ function TermsPanel({
               </button>
               <button
                 disabled={disabled}
-                onClick={() => onDelete(term)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Semester "${term.name}" wirklich loeschen?`)) {
+                    onDelete(term);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
               >
                 Loeschen
@@ -705,13 +1217,23 @@ function GradesPanel({
   grades,
   disabled,
   onDelete,
+  onEdit,
 }: {
   grades: AccountGrade[];
   disabled: boolean;
   onDelete: (grade: AccountGrade) => void;
+  onEdit: (grade: AccountGrade) => void;
 }) {
   const [targetRounded, setTargetRounded] = useState("4.5");
   const [upcomingWeight, setUpcomingWeight] = useState("1");
+  const [filters, setFilters] = useState<GradeFilters>(DEFAULT_GRADE_FILTERS);
+  const subjectOptions = useMemo(() => buildAccountSubjectFilterOptions(grades), [grades]);
+  const termOptions = useMemo(() => buildAccountTermFilterOptions(grades), [grades]);
+  const filteredGrades = useMemo(() => filterAndSortAccountGrades(grades, filters), [grades, filters]);
+  const activeFilterLabels = useMemo(
+    () => buildAccountActiveFilterLabels(filters, subjectOptions, termOptions),
+    [filters, subjectOptions, termOptions],
+  );
   const items = useMemo(
     () => grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) })),
     [grades],
@@ -760,8 +1282,128 @@ function GradesPanel({
           {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
         </span>
       </p>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1.6fr)_repeat(3,minmax(140px,1fr))]">
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Suche
+          <input
+            value={filters.search}
+            onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+            placeholder="Titel oder Notizen"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Fach
+          <select
+            value={filters.subjectId}
+            onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Faecher</option>
+            {subjectOptions.map((subject) => (
+              <option key={subject.id} value={subject.id}>
+                {subject.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Semester
+          <select
+            value={filters.termId}
+            onChange={(event) => setFilters((current) => ({ ...current, termId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Semester</option>
+            <option value={NO_TERM_FILTER}>Kein Semester</option>
+            {termOptions.map((term) => (
+              <option key={term.id} value={term.id}>
+                {term.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Typ
+          <select
+            value={filters.type}
+            onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Typen</option>
+            {GRADE_TYPES.map((gradeType) => (
+              <option key={gradeType.value} value={gradeType.value}>
+                {gradeType.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Von
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Bis
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Sortierung
+          <select
+            value={filters.sort}
+            onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value as GradeSort }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            {GRADE_SORTS.map((sort) => (
+              <option key={sort.value} value={sort.value}>
+                {sort.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-xs font-medium text-black/60">
+          <input
+            type="checkbox"
+            checked={filters.belowFourOnly}
+            onChange={(event) => setFilters((current) => ({ ...current, belowFourOnly: event.target.checked }))}
+          />
+          Unter 4.0
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-black/60">
+        <p>
+          {filteredGrades.length} von {grades.length} Noten
+        </p>
+        {activeFilterLabels.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setFilters(DEFAULT_GRADE_FILTERS)}
+            className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-ink hover:border-black/30"
+          >
+            Filter zuruecksetzen
+          </button>
+        ) : null}
+      </div>
+      {activeFilterLabels.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {activeFilterLabels.map((label) => (
+            <span key={label} className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold text-black/60">
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-4 overflow-hidden rounded-md border border-black/10">
-        {grades.map((grade) => (
+        {filteredGrades.map((grade) => (
           <div
             key={grade.id}
             className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[1fr_auto_auto]"
@@ -769,20 +1411,43 @@ function GradesPanel({
             <div>
               <p className="font-semibold text-ink">{grade.title}</p>
               <p className="text-sm text-black/60">
-                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / Gewicht {gradeWeight(grade)}
+                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / {gradeTypeLabel(grade.type)} / Gewicht{" "}
+                {gradeWeight(grade)}
               </p>
+              {grade.date || grade.notes ? (
+                <p className="mt-1 text-xs text-black/45">
+                  {formatDate(grade.date) ?? "Kein Datum"}
+                  {grade.notes ? ` - ${grade.notes}` : ""}
+                </p>
+              ) : null}
             </div>
             <p className="text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
-            <button
-              disabled={disabled}
-              onClick={() => onDelete(grade)}
-              className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
-            >
-              Loeschen
-            </button>
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <button
+                disabled={disabled}
+                onClick={() => onEdit(grade)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Note "${grade.title}" wirklich loeschen?`)) {
+                    onDelete(grade);
+                  }
+                }}
+                className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
+              >
+                Loeschen
+              </button>
+            </div>
           </div>
         ))}
         {grades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
+        {grades.length > 0 && filteredGrades.length === 0 ? (
+          <p className="p-4 text-sm text-black/60">Keine Noten passen zu den aktuellen Filtern.</p>
+        ) : null}
       </div>
     </section>
   );
@@ -819,6 +1484,115 @@ function byAverageAsc(left: { exactAverage: number | null }, right: { exactAvera
   return (left.exactAverage ?? Infinity) - (right.exactAverage ?? Infinity);
 }
 
+function byGradeDateDesc(left: AccountGrade, right: AccountGrade) {
+  return dateSortValue(right.date) - dateSortValue(left.date);
+}
+
+function filterAndSortAccountGrades(grades: AccountGrade[], filters: GradeFilters): AccountGrade[] {
+  return grades
+    .filter((grade) => matchesAccountGradeFilters(grade, filters))
+    .sort((left, right) => {
+      const compared = compareAccountGrades(left, right, filters.sort);
+      if (compared !== 0) return compared;
+      return byGradeDateDesc(left, right) || left.title.localeCompare(right.title);
+    });
+}
+
+function matchesAccountGradeFilters(grade: AccountGrade, filters: GradeFilters): boolean {
+  const search = filters.search.trim().toLowerCase();
+  if (search && !`${grade.title} ${grade.notes ?? ""}`.toLowerCase().includes(search)) return false;
+  if (filters.subjectId && grade.subjectId !== filters.subjectId) return false;
+  if (filters.termId === NO_TERM_FILTER && grade.termId !== null) return false;
+  if (filters.termId && filters.termId !== NO_TERM_FILTER && grade.termId !== filters.termId) return false;
+  if (filters.type && grade.type !== filters.type) return false;
+  if (filters.belowFourOnly && gradeValue(grade) >= 4) return false;
+
+  const gradeDate = dateInputValue(grade.date);
+  if (filters.dateFrom && (!gradeDate || gradeDate < filters.dateFrom)) return false;
+  if (filters.dateTo && (!gradeDate || gradeDate > filters.dateTo)) return false;
+
+  return true;
+}
+
+function compareAccountGrades(left: AccountGrade, right: AccountGrade, sort: GradeSort): number {
+  switch (sort) {
+    case "date-asc":
+      return dateSortValue(left.date) - dateSortValue(right.date);
+    case "grade-desc":
+      return gradeValue(right) - gradeValue(left);
+    case "grade-asc":
+      return gradeValue(left) - gradeValue(right);
+    case "subject-asc":
+      return left.subject.name.localeCompare(right.subject.name);
+    case "subject-desc":
+      return right.subject.name.localeCompare(left.subject.name);
+    case "term-asc":
+      return gradeTermLabel(left).localeCompare(gradeTermLabel(right));
+    case "term-desc":
+      return gradeTermLabel(right).localeCompare(gradeTermLabel(left));
+    case "weight-desc":
+      return gradeWeight(right) - gradeWeight(left);
+    case "weight-asc":
+      return gradeWeight(left) - gradeWeight(right);
+    case "date-desc":
+    default:
+      return dateSortValue(right.date) - dateSortValue(left.date);
+  }
+}
+
+function buildAccountSubjectFilterOptions(grades: AccountGrade[]) {
+  const subjects = new Map<string, string>();
+  for (const grade of grades) {
+    subjects.set(grade.subjectId, grade.subject.name);
+  }
+
+  return Array.from(subjects, ([id, label]) => ({ id, label })).sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
+}
+
+function buildAccountTermFilterOptions(grades: AccountGrade[]) {
+  const terms = new Map<string, string>();
+  for (const grade of grades) {
+    if (grade.termId && grade.term) terms.set(grade.termId, grade.term.name);
+  }
+
+  return Array.from(terms, ([id, label]) => ({ id, label })).sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
+}
+
+function buildAccountActiveFilterLabels(
+  filters: GradeFilters,
+  subjects: { id: string; label: string }[],
+  terms: { id: string; label: string }[],
+): string[] {
+  const labels: string[] = [];
+  if (filters.search.trim()) labels.push(`Suche: ${filters.search.trim()}`);
+  if (filters.subjectId) labels.push(`Fach: ${subjects.find((subject) => subject.id === filters.subjectId)?.label}`);
+  if (filters.termId === NO_TERM_FILTER) labels.push("Semester: keines");
+  if (filters.termId && filters.termId !== NO_TERM_FILTER) {
+    labels.push(`Semester: ${terms.find((term) => term.id === filters.termId)?.label}`);
+  }
+  if (filters.type) labels.push(`Typ: ${gradeTypeLabel(filters.type as GradeType)}`);
+  if (filters.dateFrom) labels.push(`Von: ${filters.dateFrom}`);
+  if (filters.dateTo) labels.push(`Bis: ${filters.dateTo}`);
+  if (filters.belowFourOnly) labels.push("Unter 4.0");
+  if (filters.sort !== DEFAULT_GRADE_FILTERS.sort) {
+    labels.push(`Sort: ${GRADE_SORTS.find((sort) => sort.value === filters.sort)?.label}`);
+  }
+  return labels.filter((label) => !label.endsWith("undefined"));
+}
+
+function gradeTermLabel(grade: AccountGrade): string {
+  return grade.term?.name ?? "kein Semester";
+}
+
+function dateSortValue(value: string | null): number {
+  if (!value) return 0;
+  return new Date(value).getTime();
+}
+
 function gradeValue(grade: AccountGrade): number {
   return Number(grade.gradeValue);
 }
@@ -832,6 +1606,27 @@ function formatDate(value: string | null): string | null {
   return new Intl.DateTimeFormat("de-CH").format(new Date(value));
 }
 
+function dateInputValue(value: string | null): string {
+  return value ? value.slice(0, 10) : "";
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function subjectTypeLabel(value: SubjectType): string {
   return SUBJECT_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function gradeTypeLabel(value: GradeType): string {
+  return GRADE_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function confirmDestructiveAction(message: string): boolean {
+  return window.confirm(message);
+}
+
+function parseAccountView(value: string | null): AccountView {
+  if (value === "subjects" || value === "terms" || value === "grades") return value;
+  return "dashboard";
 }

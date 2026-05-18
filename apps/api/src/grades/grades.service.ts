@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateGradeDto, UpdateGradeDto } from "./grades.dto";
 
 @Injectable()
 export class GradesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   findMany(userId: string) {
     return this.prisma.grade.findMany({
