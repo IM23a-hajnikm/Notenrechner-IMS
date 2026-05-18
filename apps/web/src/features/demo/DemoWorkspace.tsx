@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   calculateRequiredGrade,
@@ -9,24 +9,15 @@ import {
   minimumExactAverageForRoundedHalf,
 } from "@notenrechner/shared";
 
+import { CertificationStatusCards } from "../certification/CertificationStatusCards";
+import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 import { DemoGrade, DemoState, demoSeed } from "./demo-data";
 
 const STORAGE_KEY = "notenrechner-v2-demo";
 
 export function DemoWorkspace() {
-  const [state, setState] = useState<DemoState>(() => {
-    if (typeof window === "undefined") return demoSeed;
-
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return demoSeed;
-
-    try {
-      return JSON.parse(raw) as DemoState;
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-      return demoSeed;
-    }
-  });
+  const [state, setState] = useState<DemoState>(demoSeed);
+  const hasLoadedStoredState = useRef(false);
   const [subjectId, setSubjectId] = useState(demoSeed.subjects[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("4.5");
@@ -35,6 +26,32 @@ export function DemoWorkspace() {
   const [upcomingWeight, setUpcomingWeight] = useState("1");
 
   useEffect(() => {
+    window.queueMicrotask(() => {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+
+      if (!raw) {
+        hasLoadedStoredState.current = true;
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isDemoState(parsed)) {
+          hasLoadedStoredState.current = true;
+          setState(parsed);
+        } else {
+          hasLoadedStoredState.current = true;
+          window.localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        hasLoadedStoredState.current = true;
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedStoredState.current) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
@@ -72,6 +89,7 @@ export function DemoWorkspace() {
       return null;
     }
   }, [allItems, targetRounded, upcomingWeight]);
+  const certificationStatus = useMemo(() => deriveSavedCertificationStatus(state.subjects, state.grades), [state]);
 
   function addGrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,10 +112,12 @@ export function DemoWorkspace() {
     const grade: DemoGrade = {
       id: crypto.randomUUID(),
       subjectId,
+      termId: "demo-semester",
       title: title.trim(),
       value: parsedValue,
       weight: parsedWeight,
       date: new Date().toISOString().slice(0, 10),
+      type: "exam",
     };
 
     setState((current) => ({
@@ -160,6 +180,7 @@ export function DemoWorkspace() {
           <DashboardMetric label="Noten unter 4.0" value={String(belowFour.length)} />
           <DashboardMetric label="Erfasste Noten" value={String(state.grades.length)} />
         </section>
+        <CertificationStatusCards status={certificationStatus} />
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
           <form onSubmit={addGrade} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
@@ -311,5 +332,18 @@ function DashboardMetric({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-black/60">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-ink">{value}</p>
     </article>
+  );
+}
+
+function isDemoState(value: unknown): value is DemoState {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<DemoState>;
+
+  return (
+    Array.isArray(candidate.subjects) &&
+    candidate.subjects.every((subject) => typeof subject.subjectType === "string") &&
+    Array.isArray(candidate.grades) &&
+    candidate.grades.every((grade) => typeof grade.type === "string")
   );
 }

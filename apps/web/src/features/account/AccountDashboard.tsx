@@ -28,6 +28,8 @@ import {
   updateSubject,
   updateTerm,
 } from "./api-client";
+import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
+import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 
 const SUBJECT_TYPES: { value: SubjectType; label: string }[] = [
   { value: "regular", label: "Regulaer" },
@@ -144,6 +146,8 @@ export function AccountDashboard() {
     );
   }
 
+  const certificationStatus = deriveSavedCertificationStatus(snapshot.subjects, snapshot.grades);
+
   return (
     <main className="min-h-screen bg-[#f6f8f7]">
       <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8">
@@ -181,11 +185,13 @@ export function AccountDashboard() {
         {error ? <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
         <AccountSummary snapshot={snapshot} />
+        <CertificationStatusCards status={certificationStatus} />
 
         <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
           <div className="grid gap-4">
             <SubjectForm disabled={isMutating} onSubmit={(input) => mutate(() => createSubject(input))} />
             <TermForm disabled={isMutating} onSubmit={(input) => mutate(() => createTerm(input))} />
+            <CertificationInputGuide />
             <GradeForm
               disabled={isMutating}
               subjects={snapshot.subjects.filter((subject) => !subject.archived)}
