@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import type { Prisma, User } from "@prisma/client";
@@ -13,8 +13,11 @@ import type { LoginDto, RegisterDto } from "./auth.dto";
 @Injectable()
 export class AuthService {
   constructor(
+    @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(JwtService)
     private readonly jwt: JwtService,
+    @Inject(ConfigService)
     private readonly config: ConfigService,
   ) {}
 

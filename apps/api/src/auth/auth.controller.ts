@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { CookieOptions, Request, Response } from "express";
 
@@ -21,7 +21,9 @@ type RequestWithCookies = Request & {
 @Controller("auth")
 export class AuthController {
   constructor(
+    @Inject(AuthService)
     private readonly auth: AuthService,
+    @Inject(ConfigService)
     private readonly config: ConfigService,
   ) {}
 
