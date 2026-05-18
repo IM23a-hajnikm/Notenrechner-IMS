@@ -189,6 +189,25 @@ export async function createGrade(input: {
   });
 }
 
+export async function updateGrade(
+  id: string,
+  input: Partial<{
+    subjectId: string;
+    termId: string | null;
+    title: string;
+    gradeValue: number;
+    weight: number;
+    date: string | null;
+    type: GradeType;
+    notes: string | null;
+  }>,
+) {
+  return apiRequest<AccountGrade>(`/grades/${id}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
 export async function deleteGrade(id: string) {
   return apiRequest<{ deleted: true }>(`/grades/${id}`, {
     method: "DELETE",

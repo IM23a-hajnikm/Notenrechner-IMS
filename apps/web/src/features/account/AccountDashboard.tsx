@@ -25,9 +25,12 @@ import {
   deleteTerm,
   loadAccountSnapshot,
   logoutAccount,
+  updateGrade,
   updateSubject,
   updateTerm,
 } from "./api-client";
+
+const DEFAULT_SUBJECT_COLOR = "#1f7a68";
 
 const SUBJECT_TYPES: { value: SubjectType; label: string }[] = [
   { value: "regular", label: "Regulaer" },
@@ -53,6 +56,35 @@ type AccountView = "dashboard" | "subjects" | "terms" | "grades";
 type CreateSubjectInput = Parameters<typeof createSubject>[0];
 type CreateTermInput = Parameters<typeof createTerm>[0];
 type CreateGradeInput = Parameters<typeof createGrade>[0];
+type UpdateSubjectInput = Parameters<typeof updateSubject>[1];
+type UpdateTermInput = Parameters<typeof updateTerm>[1];
+type UpdateGradeInput = Parameters<typeof updateGrade>[1];
+
+type SubjectFormInput = {
+  name: string;
+  shortName: string | null;
+  color: string | null;
+  subjectType: SubjectType;
+  archived: boolean;
+};
+
+type TermFormInput = {
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  isActive: boolean;
+};
+
+type GradeFormInput = {
+  subjectId: string;
+  termId: string | null;
+  title: string;
+  gradeValue: number;
+  weight: number;
+  date: string | null;
+  type: GradeType;
+  notes: string | null;
+};
 
 const ACCOUNT_VIEWS: { value: AccountView; label: string; description: string }[] = [
   { value: "dashboard", label: "Dashboard", description: "Ueberblick" },
@@ -97,15 +129,17 @@ export function AccountDashboard() {
     setSnapshot(data);
   }
 
-  async function mutate(action: () => Promise<unknown>) {
+  async function mutate(action: () => Promise<unknown>): Promise<boolean> {
     setError(null);
     setIsMutating(true);
 
     try {
       await action();
       await refresh();
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Die Aktion konnte nicht gespeichert werden.");
+      return false;
     } finally {
       setIsMutating(false);
     }
@@ -223,6 +257,7 @@ export function AccountDashboard() {
             onArchive={(subject) => mutate(() => updateSubject(subject.id, { archived: !subject.archived }))}
             onCreateSubject={(input) => mutate(() => createSubject(input))}
             onDelete={(subject) => mutate(() => deleteSubject(subject.id))}
+            onUpdateSubject={(subject, input) => mutate(() => updateSubject(subject.id, input))}
           />
         ) : null}
 
@@ -233,6 +268,7 @@ export function AccountDashboard() {
             onCreateTerm={(input) => mutate(() => createTerm(input))}
             onDelete={(term) => mutate(() => deleteTerm(term.id))}
             onToggleActive={(term) => mutate(() => updateTerm(term.id, { isActive: !term.isActive }))}
+            onUpdateTerm={(term, input) => mutate(() => updateTerm(term.id, input))}
           />
         ) : null}
 
@@ -242,6 +278,7 @@ export function AccountDashboard() {
             snapshot={snapshot}
             onCreateGrade={(input) => mutate(() => createGrade(input))}
             onDelete={(grade) => mutate(() => deleteGrade(grade.id))}
+            onUpdateGrade={(grade, input) => mutate(() => updateGrade(grade.id, input))}
           />
         ) : null}
       </div>
@@ -307,7 +344,7 @@ function DashboardView({
 }: {
   disabled: boolean;
   snapshot: AccountSnapshot;
-  onCreateGrade: (input: CreateGradeInput) => void;
+  onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
 }) {
   return (
     <>
@@ -334,22 +371,57 @@ function SubjectsView({
   onArchive,
   onCreateSubject,
   onDelete,
+  onUpdateSubject,
 }: {
   disabled: boolean;
   snapshot: AccountSnapshot;
-  onArchive: (subject: AccountSubject) => void;
-  onCreateSubject: (input: CreateSubjectInput) => void;
-  onDelete: (subject: AccountSubject) => void;
+  onArchive: (subject: AccountSubject) => Promise<boolean>;
+  onCreateSubject: (input: CreateSubjectInput) => Promise<boolean>;
+  onDelete: (subject: AccountSubject) => Promise<boolean>;
+  onUpdateSubject: (subject: AccountSubject, input: UpdateSubjectInput) => Promise<boolean>;
 }) {
+  const [editingSubject, setEditingSubject] = useState<AccountSubject | null>(null);
+
+  async function submitSubject(input: SubjectFormInput) {
+    const saved = editingSubject
+      ? await onUpdateSubject(editingSubject, input)
+      : await onCreateSubject({
+          name: input.name,
+          ...(input.shortName ? { shortName: input.shortName } : {}),
+          ...(input.color ? { color: input.color } : {}),
+          subjectType: input.subjectType,
+        });
+
+    if (saved) setEditingSubject(null);
+    return saved;
+  }
+
+  async function archiveSubject(subject: AccountSubject) {
+    const saved = await onArchive(subject);
+    if (saved && editingSubject?.id === subject.id) setEditingSubject(null);
+  }
+
+  async function deleteSubject(subject: AccountSubject) {
+    const deleted = await onDelete(subject);
+    if (deleted && editingSubject?.id === subject.id) setEditingSubject(null);
+  }
+
   return (
     <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-      <SubjectForm disabled={disabled} onSubmit={onCreateSubject} />
+      <SubjectForm
+        key={editingSubject?.id ?? "create-subject"}
+        disabled={disabled}
+        editingSubject={editingSubject}
+        onCancelEdit={() => setEditingSubject(null)}
+        onSubmit={submitSubject}
+      />
       <SubjectsPanel
         subjects={snapshot.subjects}
         grades={snapshot.grades}
         disabled={disabled}
-        onArchive={onArchive}
-        onDelete={onDelete}
+        onArchive={(subject) => void archiveSubject(subject)}
+        onDelete={(subject) => void deleteSubject(subject)}
+        onEdit={setEditingSubject}
       />
     </section>
   );
@@ -361,17 +433,49 @@ function TermsView({
   onCreateTerm,
   onDelete,
   onToggleActive,
+  onUpdateTerm,
 }: {
   disabled: boolean;
   snapshot: AccountSnapshot;
-  onCreateTerm: (input: CreateTermInput) => void;
-  onDelete: (term: AccountTerm) => void;
-  onToggleActive: (term: AccountTerm) => void;
+  onCreateTerm: (input: CreateTermInput) => Promise<boolean>;
+  onDelete: (term: AccountTerm) => Promise<boolean>;
+  onToggleActive: (term: AccountTerm) => Promise<boolean>;
+  onUpdateTerm: (term: AccountTerm, input: UpdateTermInput) => Promise<boolean>;
 }) {
+  const [editingTerm, setEditingTerm] = useState<AccountTerm | null>(null);
+
+  async function submitTerm(input: TermFormInput) {
+    const saved = editingTerm ? await onUpdateTerm(editingTerm, input) : await onCreateTerm(input);
+    if (saved) setEditingTerm(null);
+    return saved;
+  }
+
+  async function toggleTermActive(term: AccountTerm) {
+    const saved = await onToggleActive(term);
+    if (saved && editingTerm?.id === term.id) setEditingTerm(null);
+  }
+
+  async function deleteTerm(term: AccountTerm) {
+    const deleted = await onDelete(term);
+    if (deleted && editingTerm?.id === term.id) setEditingTerm(null);
+  }
+
   return (
     <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-      <TermForm disabled={disabled} onSubmit={onCreateTerm} />
-      <TermsPanel terms={snapshot.terms} disabled={disabled} onDelete={onDelete} onToggleActive={onToggleActive} />
+      <TermForm
+        key={editingTerm?.id ?? "create-term"}
+        disabled={disabled}
+        editingTerm={editingTerm}
+        onCancelEdit={() => setEditingTerm(null)}
+        onSubmit={submitTerm}
+      />
+      <TermsPanel
+        terms={snapshot.terms}
+        disabled={disabled}
+        onDelete={(term) => void deleteTerm(term)}
+        onEdit={setEditingTerm}
+        onToggleActive={(term) => void toggleTermActive(term)}
+      />
     </section>
   );
 }
@@ -381,21 +485,45 @@ function GradesView({
   snapshot,
   onCreateGrade,
   onDelete,
+  onUpdateGrade,
 }: {
   disabled: boolean;
   snapshot: AccountSnapshot;
-  onCreateGrade: (input: CreateGradeInput) => void;
-  onDelete: (grade: AccountGrade) => void;
+  onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
+  onDelete: (grade: AccountGrade) => Promise<boolean>;
+  onUpdateGrade: (grade: AccountGrade, input: UpdateGradeInput) => Promise<boolean>;
 }) {
+  const [editingGrade, setEditingGrade] = useState<AccountGrade | null>(null);
+  const formSubjects = editingGrade ? snapshot.subjects : snapshot.subjects.filter((subject) => !subject.archived);
+
+  async function submitGrade(input: GradeFormInput) {
+    const saved = editingGrade ? await onUpdateGrade(editingGrade, input) : await onCreateGrade(input);
+    if (saved) setEditingGrade(null);
+    return saved;
+  }
+
+  async function deleteGrade(grade: AccountGrade) {
+    const deleted = await onDelete(grade);
+    if (deleted && editingGrade?.id === grade.id) setEditingGrade(null);
+  }
+
   return (
     <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
       <GradeForm
+        key={editingGrade?.id ?? "create-grade"}
         disabled={disabled}
-        subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+        editingGrade={editingGrade}
+        subjects={formSubjects}
         terms={snapshot.terms}
-        onSubmit={onCreateGrade}
+        onCancelEdit={() => setEditingGrade(null)}
+        onSubmit={submitGrade}
       />
-      <GradesPanel grades={snapshot.grades} disabled={disabled} onDelete={onDelete} />
+      <GradesPanel
+        grades={snapshot.grades}
+        disabled={disabled}
+        onDelete={(grade) => void deleteGrade(grade)}
+        onEdit={setEditingGrade}
+      />
     </section>
   );
 }
@@ -488,34 +616,46 @@ function RecentGrades({ grades }: { grades: AccountGrade[] }) {
 
 function SubjectForm({
   disabled,
+  editingSubject,
+  onCancelEdit,
   onSubmit,
 }: {
   disabled: boolean;
-  onSubmit: (input: { name: string; shortName?: string; color?: string; subjectType?: SubjectType }) => void;
+  editingSubject?: AccountSubject | null;
+  onCancelEdit?: () => void;
+  onSubmit: (input: SubjectFormInput) => Promise<boolean>;
 }) {
-  const [name, setName] = useState("");
-  const [shortName, setShortName] = useState("");
-  const [color, setColor] = useState("#1f7a68");
-  const [subjectType, setSubjectType] = useState<SubjectType>("regular");
+  const isEditing = Boolean(editingSubject);
+  const [name, setName] = useState(editingSubject?.name ?? "");
+  const [shortName, setShortName] = useState(editingSubject?.shortName ?? "");
+  const [color, setColor] = useState(editingSubject?.color ?? DEFAULT_SUBJECT_COLOR);
+  const [subjectType, setSubjectType] = useState<SubjectType>(editingSubject?.subjectType ?? "regular");
+  const [archived, setArchived] = useState(editingSubject?.archived ?? false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
 
-    onSubmit({
+    const saved = await onSubmit({
       name: name.trim(),
-      ...(shortName.trim() ? { shortName: shortName.trim() } : {}),
-      color,
+      shortName: shortName.trim() || null,
+      color: color || null,
       subjectType,
+      archived,
     });
+    if (!saved) return;
+
     setName("");
     setShortName("");
+    setColor(DEFAULT_SUBJECT_COLOR);
     setSubjectType("regular");
+    setArchived(false);
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Fach erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Fach bearbeiten" : "Fach erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Name
@@ -559,12 +699,30 @@ function SubjectForm({
             ))}
           </select>
         </label>
-        <button
-          disabled={disabled}
-          className="rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Fach speichern
-        </button>
+        {isEditing ? (
+          <label className="flex items-center gap-2 text-sm font-medium text-black/70">
+            <input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />
+            Archiviert
+          </label>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled}
+            className="rounded-md bg-alpine px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Fach aktualisieren" : "Fach speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -572,35 +730,43 @@ function SubjectForm({
 
 function TermForm({
   disabled,
+  editingTerm,
+  onCancelEdit,
   onSubmit,
 }: {
   disabled: boolean;
-  onSubmit: (input: { name: string; startDate?: string | null; endDate?: string | null; isActive?: boolean }) => void;
+  editingTerm?: AccountTerm | null;
+  onCancelEdit?: () => void;
+  onSubmit: (input: TermFormInput) => Promise<boolean>;
 }) {
-  const [name, setName] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isActive, setIsActive] = useState(false);
+  const isEditing = Boolean(editingTerm);
+  const [name, setName] = useState(editingTerm?.name ?? "");
+  const [startDate, setStartDate] = useState(dateInputValue(editingTerm?.startDate ?? null));
+  const [endDate, setEndDate] = useState(dateInputValue(editingTerm?.endDate ?? null));
+  const [isActive, setIsActive] = useState(editingTerm?.isActive ?? false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
 
-    onSubmit({
+    const saved = await onSubmit({
       name: name.trim(),
       startDate: startDate || null,
       endDate: endDate || null,
       isActive,
     });
+    if (!saved) return;
+
     setName("");
     setStartDate("");
     setEndDate("");
     setIsActive(false);
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Semester erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Semester bearbeiten" : "Semester erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Name
@@ -636,12 +802,24 @@ function TermForm({
           <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
           Aktives Semester
         </label>
-        <button
-          disabled={disabled}
-          className="rounded-md bg-lake px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Semester speichern
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled}
+            className="rounded-md bg-lake px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Semester aktualisieren" : "Semester speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -649,36 +827,32 @@ function TermForm({
 
 function GradeForm({
   disabled,
+  editingGrade,
+  onCancelEdit,
   subjects,
   terms,
   onSubmit,
 }: {
   disabled: boolean;
+  editingGrade?: AccountGrade | null;
+  onCancelEdit?: () => void;
   subjects: AccountSubject[];
   terms: AccountTerm[];
-  onSubmit: (input: {
-    subjectId: string;
-    termId?: string | null;
-    title: string;
-    gradeValue: number;
-    weight?: number;
-    date?: string | null;
-    type?: GradeType;
-    notes?: string | null;
-  }) => void;
+  onSubmit: (input: GradeFormInput) => Promise<boolean>;
 }) {
-  const [subjectId, setSubjectId] = useState("");
-  const [termId, setTermId] = useState("");
-  const [title, setTitle] = useState("");
-  const [gradeValueInput, setGradeValueInput] = useState("4.5");
-  const [weightInput, setWeightInput] = useState("1");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [type, setType] = useState<GradeType>("exam");
-  const [notes, setNotes] = useState("");
+  const isEditing = Boolean(editingGrade);
+  const [subjectId, setSubjectId] = useState(editingGrade?.subjectId ?? "");
+  const [termId, setTermId] = useState(editingGrade?.termId ?? "");
+  const [title, setTitle] = useState(editingGrade?.title ?? "");
+  const [gradeValueInput, setGradeValueInput] = useState(editingGrade ? String(gradeValue(editingGrade)) : "4.5");
+  const [weightInput, setWeightInput] = useState(editingGrade ? String(gradeWeight(editingGrade)) : "1");
+  const [date, setDate] = useState(editingGrade ? dateInputValue(editingGrade.date) : today());
+  const [type, setType] = useState<GradeType>(editingGrade?.type ?? "exam");
+  const [notes, setNotes] = useState(editingGrade?.notes ?? "");
 
   const selectedSubjectId = subjectId || subjects[0]?.id || "";
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const parsedGrade = Number(gradeValueInput);
@@ -696,7 +870,7 @@ function GradeForm({
       return;
     }
 
-    onSubmit({
+    const saved = await onSubmit({
       subjectId: selectedSubjectId,
       termId: termId || null,
       title: title.trim(),
@@ -706,15 +880,20 @@ function GradeForm({
       type,
       notes: notes.trim() || null,
     });
+    if (!saved) return;
+
     setTitle("");
     setGradeValueInput("4.5");
     setWeightInput("1");
+    setDate(today());
+    setType("exam");
     setNotes("");
+    if (isEditing) onCancelEdit?.();
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold text-ink">Note erfassen</h2>
+      <h2 className="text-lg font-semibold text-ink">{isEditing ? "Note bearbeiten" : "Note erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Fach
@@ -812,12 +991,24 @@ function GradeForm({
             className="resize-none rounded-md border border-black/15 px-3 py-2"
           />
         </label>
-        <button
-          disabled={disabled || subjects.length === 0}
-          className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          Note speichern
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            disabled={disabled || subjects.length === 0}
+            className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {isEditing ? "Note aktualisieren" : "Note speichern"}
+          </button>
+          {isEditing ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onCancelEdit}
+              className="rounded-md border border-black/15 px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          ) : null}
+        </div>
       </div>
     </form>
   );
@@ -829,12 +1020,14 @@ function SubjectsPanel({
   disabled,
   onArchive,
   onDelete,
+  onEdit,
 }: {
   subjects: AccountSubject[];
   grades: AccountGrade[];
   disabled: boolean;
   onArchive: (subject: AccountSubject) => void;
   onDelete: (subject: AccountSubject) => void;
+  onEdit: (subject: AccountSubject) => void;
 }) {
   const summaries = buildSubjectSummaries(subjects, grades);
 
@@ -849,7 +1042,7 @@ function SubjectsPanel({
                 <div className="flex items-center gap-2">
                   <span
                     className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: summary.subject.color ?? "#1f7a68" }}
+                    style={{ backgroundColor: summary.subject.color ?? DEFAULT_SUBJECT_COLOR }}
                     aria-hidden
                   />
                   <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
@@ -868,6 +1061,13 @@ function SubjectsPanel({
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 disabled={disabled}
+                onClick={() => onEdit(summary.subject)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
                 onClick={() => onArchive(summary.subject)}
                 className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
               >
@@ -875,7 +1075,11 @@ function SubjectsPanel({
               </button>
               <button
                 disabled={disabled}
-                onClick={() => onDelete(summary.subject)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Fach "${summary.subject.name}" wirklich loeschen?`)) {
+                    onDelete(summary.subject);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
               >
                 Loeschen
@@ -892,11 +1096,13 @@ function SubjectsPanel({
 function TermsPanel({
   terms,
   disabled,
+  onEdit,
   onToggleActive,
   onDelete,
 }: {
   terms: AccountTerm[];
   disabled: boolean;
+  onEdit: (term: AccountTerm) => void;
   onToggleActive: (term: AccountTerm) => void;
   onDelete: (term: AccountTerm) => void;
 }) {
@@ -918,6 +1124,13 @@ function TermsPanel({
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={disabled}
+                onClick={() => onEdit(term)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
                 onClick={() => onToggleActive(term)}
                 className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
               >
@@ -925,7 +1138,11 @@ function TermsPanel({
               </button>
               <button
                 disabled={disabled}
-                onClick={() => onDelete(term)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Semester "${term.name}" wirklich loeschen?`)) {
+                    onDelete(term);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
               >
                 Loeschen
@@ -943,10 +1160,12 @@ function GradesPanel({
   grades,
   disabled,
   onDelete,
+  onEdit,
 }: {
   grades: AccountGrade[];
   disabled: boolean;
   onDelete: (grade: AccountGrade) => void;
+  onEdit: (grade: AccountGrade) => void;
 }) {
   const [targetRounded, setTargetRounded] = useState("4.5");
   const [upcomingWeight, setUpcomingWeight] = useState("1");
@@ -1007,17 +1226,37 @@ function GradesPanel({
             <div>
               <p className="font-semibold text-ink">{grade.title}</p>
               <p className="text-sm text-black/60">
-                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / Gewicht {gradeWeight(grade)}
+                {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / {gradeTypeLabel(grade.type)} / Gewicht{" "}
+                {gradeWeight(grade)}
               </p>
+              {grade.date || grade.notes ? (
+                <p className="mt-1 text-xs text-black/45">
+                  {formatDate(grade.date) ?? "Kein Datum"}
+                  {grade.notes ? ` - ${grade.notes}` : ""}
+                </p>
+              ) : null}
             </div>
             <p className="text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
-            <button
-              disabled={disabled}
-              onClick={() => onDelete(grade)}
-              className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
-            >
-              Loeschen
-            </button>
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <button
+                disabled={disabled}
+                onClick={() => onEdit(grade)}
+                className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 disabled:opacity-60"
+              >
+                Bearbeiten
+              </button>
+              <button
+                disabled={disabled}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Note "${grade.title}" wirklich loeschen?`)) {
+                    onDelete(grade);
+                  }
+                }}
+                className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 disabled:opacity-60"
+              >
+                Loeschen
+              </button>
+            </div>
           </div>
         ))}
         {grades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
@@ -1079,8 +1318,24 @@ function formatDate(value: string | null): string | null {
   return new Intl.DateTimeFormat("de-CH").format(new Date(value));
 }
 
+function dateInputValue(value: string | null): string {
+  return value ? value.slice(0, 10) : "";
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function subjectTypeLabel(value: SubjectType): string {
   return SUBJECT_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function gradeTypeLabel(value: GradeType): string {
+  return GRADE_TYPES.find((type) => type.value === value)?.label ?? value;
+}
+
+function confirmDestructiveAction(message: string): boolean {
+  return window.confirm(message);
 }
 
 function parseAccountView(value: string | null): AccountView {
