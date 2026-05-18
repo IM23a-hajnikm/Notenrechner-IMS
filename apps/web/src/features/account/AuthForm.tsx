@@ -4,7 +4,18 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import {
+  FieldError,
+  FieldErrors,
+  authLoginSchema,
+  authRegisterSchema,
+  fieldErrorId,
+  fieldErrorsFromZod,
+  inputClassName,
+} from "../validation/form-validation";
 import { loginAccount, registerAccount } from "./api-client";
+
+type AuthField = "email" | "password" | "name";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -12,24 +23,30 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<AuthField>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isRegister = mode === "register";
+  const formId = `auth-${mode}`;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setFieldErrors({});
+
+    const parsed = (isRegister ? authRegisterSchema : authLoginSchema).safeParse({ email, name, password });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFromZod<AuthField>(parsed.error));
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       if (isRegister) {
-        await registerAccount({
-          email,
-          password,
-          ...(name.trim() ? { name: name.trim() } : {}),
-        });
+        await registerAccount(parsed.data);
       } else {
-        await loginAccount({ email, password });
+        await loginAccount(parsed.data);
       }
       router.push("/account");
     } catch (caught) {
@@ -53,7 +70,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               : "Melde dich an, um deine gespeicherten Noten zu verwalten."}
           </p>
 
-          <form onSubmit={submit} className="mt-5 grid gap-4">
+          <form onSubmit={submit} noValidate className="mt-5 grid gap-4">
             {isRegister ? (
               <label className="grid gap-1 text-sm font-medium text-black/70">
                 Name
@@ -61,8 +78,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   autoComplete="name"
-                  className="rounded-md border border-black/15 px-3 py-2"
+                  aria-invalid={Boolean(fieldErrors.name)}
+                  aria-describedby={fieldErrors.name ? fieldErrorId(formId, "name") : undefined}
+                  className={inputClassName(Boolean(fieldErrors.name))}
                 />
+                <FieldError id={fieldErrorId(formId, "name")} message={fieldErrors.name} />
               </label>
             ) : null}
 
@@ -73,9 +93,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
-                required
-                className="rounded-md border border-black/15 px-3 py-2"
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? fieldErrorId(formId, "email") : undefined}
+                className={inputClassName(Boolean(fieldErrors.email))}
               />
+              <FieldError id={fieldErrorId(formId, "email")} message={fieldErrors.email} />
             </label>
 
             <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -85,10 +107,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete={isRegister ? "new-password" : "current-password"}
-                minLength={8}
-                required
-                className="rounded-md border border-black/15 px-3 py-2"
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? fieldErrorId(formId, "password") : undefined}
+                className={inputClassName(Boolean(fieldErrors.password))}
               />
+              <FieldError id={fieldErrorId(formId, "password")} message={fieldErrors.password} />
             </label>
 
             {error ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}

@@ -27,6 +27,16 @@ import {
 import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
+import {
+  FieldError,
+  FieldErrors,
+  fieldErrorId,
+  fieldErrorsFromZod,
+  gradeFormSchema,
+  inputClassName,
+  subjectFormSchema,
+  termFormSchema,
+} from "../validation/form-validation";
 
 const DEFAULT_SUBJECT_COLOR = "#1f7a68";
 
@@ -83,6 +93,10 @@ type GradeFormInput = {
   type: GradeType;
   notes: string | null;
 };
+
+type SubjectFormField = "name" | "shortName" | "color" | "subjectType" | "archived";
+type TermFormField = "name" | "startDate" | "endDate" | "isActive";
+type GradeFormField = "subjectId" | "termId" | "title" | "gradeValue" | "weight" | "date" | "type" | "notes";
 
 type GradeSort =
   | "date-desc"
@@ -660,18 +674,20 @@ function SubjectForm({
   const [color, setColor] = useState(editingSubject?.color ?? DEFAULT_SUBJECT_COLOR);
   const [subjectType, setSubjectType] = useState<SubjectType>(editingSubject?.subjectType ?? "regular");
   const [archived, setArchived] = useState(editingSubject?.archived ?? false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<SubjectFormField>>({});
+  const formId = `account-subject-${editingSubject?.id ?? "new"}`;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!name.trim()) return;
+    setFieldErrors({});
 
-    const saved = await onSubmit({
-      name: name.trim(),
-      shortName: shortName.trim() || null,
-      color: color || null,
-      subjectType,
-      archived,
-    });
+    const parsed = subjectFormSchema.safeParse({ name, shortName, color, subjectType, archived });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFromZod<SubjectFormField>(parsed.error));
+      return;
+    }
+
+    const saved = await onSubmit(parsed.data);
     if (!saved) return;
 
     setName("");
@@ -683,7 +699,7 @@ function SubjectForm({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={submit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <h2 className="text-lg font-semibold text-ink">{isEditing ? "Fach bearbeiten" : "Fach erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -691,9 +707,11 @@ function SubjectForm({
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? fieldErrorId(formId, "name") : undefined}
+            className={inputClassName(Boolean(fieldErrors.name))}
           />
+          <FieldError id={fieldErrorId(formId, "name")} message={fieldErrors.name} />
         </label>
         <div className="grid grid-cols-[1fr_64px] gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -701,8 +719,11 @@ function SubjectForm({
             <input
               value={shortName}
               onChange={(event) => setShortName(event.target.value)}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.shortName)}
+              aria-describedby={fieldErrors.shortName ? fieldErrorId(formId, "shortName") : undefined}
+              className={inputClassName(Boolean(fieldErrors.shortName))}
             />
+            <FieldError id={fieldErrorId(formId, "shortName")} message={fieldErrors.shortName} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Farbe
@@ -710,8 +731,11 @@ function SubjectForm({
               type="color"
               value={color}
               onChange={(event) => setColor(event.target.value)}
+              aria-invalid={Boolean(fieldErrors.color)}
+              aria-describedby={fieldErrors.color ? fieldErrorId(formId, "color") : undefined}
               className="h-10 rounded-md border border-black/15 bg-white px-1 py-1"
             />
+            <FieldError id={fieldErrorId(formId, "color")} message={fieldErrors.color} />
           </label>
         </div>
         <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -773,17 +797,20 @@ function TermForm({
   const [startDate, setStartDate] = useState(dateInputValue(editingTerm?.startDate ?? null));
   const [endDate, setEndDate] = useState(dateInputValue(editingTerm?.endDate ?? null));
   const [isActive, setIsActive] = useState(editingTerm?.isActive ?? false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<TermFormField>>({});
+  const formId = `account-term-${editingTerm?.id ?? "new"}`;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!name.trim()) return;
+    setFieldErrors({});
 
-    const saved = await onSubmit({
-      name: name.trim(),
-      startDate: startDate || null,
-      endDate: endDate || null,
-      isActive,
-    });
+    const parsed = termFormSchema.safeParse({ name, startDate, endDate, isActive });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFromZod<TermFormField>(parsed.error));
+      return;
+    }
+
+    const saved = await onSubmit(parsed.data);
     if (!saved) return;
 
     setName("");
@@ -794,7 +821,7 @@ function TermForm({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={submit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <h2 className="text-lg font-semibold text-ink">{isEditing ? "Semester bearbeiten" : "Semester erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -803,9 +830,11 @@ function TermForm({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="z.B. 3. Semester"
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? fieldErrorId(formId, "name") : undefined}
+            className={inputClassName(Boolean(fieldErrors.name))}
           />
+          <FieldError id={fieldErrorId(formId, "name")} message={fieldErrors.name} />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -814,8 +843,11 @@ function TermForm({
               type="date"
               value={startDate}
               onChange={(event) => setStartDate(event.target.value)}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.startDate)}
+              aria-describedby={fieldErrors.startDate ? fieldErrorId(formId, "startDate") : undefined}
+              className={inputClassName(Boolean(fieldErrors.startDate))}
             />
+            <FieldError id={fieldErrorId(formId, "startDate")} message={fieldErrors.startDate} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Ende
@@ -823,8 +855,11 @@ function TermForm({
               type="date"
               value={endDate}
               onChange={(event) => setEndDate(event.target.value)}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.endDate)}
+              aria-describedby={fieldErrors.endDate ? fieldErrorId(formId, "endDate") : undefined}
+              className={inputClassName(Boolean(fieldErrors.endDate))}
             />
+            <FieldError id={fieldErrorId(formId, "endDate")} message={fieldErrors.endDate} />
           </label>
         </div>
         <label className="flex items-center gap-2 text-sm font-medium text-black/70">
@@ -878,37 +913,31 @@ function GradeForm({
   const [date, setDate] = useState(editingGrade ? dateInputValue(editingGrade.date) : today());
   const [type, setType] = useState<GradeType>(editingGrade?.type ?? "exam");
   const [notes, setNotes] = useState(editingGrade?.notes ?? "");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<GradeFormField>>({});
+  const formId = `account-grade-${editingGrade?.id ?? "new"}`;
 
   const selectedSubjectId = subjectId || subjects[0]?.id || "";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFieldErrors({});
 
-    const parsedGrade = Number(gradeValueInput);
-    const parsedWeight = Number(weightInput);
-
-    if (
-      !selectedSubjectId ||
-      !title.trim() ||
-      !Number.isFinite(parsedGrade) ||
-      !Number.isFinite(parsedWeight) ||
-      parsedGrade < 1 ||
-      parsedGrade > 6 ||
-      parsedWeight < 0
-    ) {
+    const parsed = gradeFormSchema.safeParse({
+      subjectId: selectedSubjectId,
+      termId,
+      title,
+      gradeValue: gradeValueInput,
+      weight: weightInput,
+      date,
+      type,
+      notes,
+    });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFromZod<GradeFormField>(parsed.error));
       return;
     }
 
-    const saved = await onSubmit({
-      subjectId: selectedSubjectId,
-      termId: termId || null,
-      title: title.trim(),
-      gradeValue: parsedGrade,
-      weight: parsedWeight,
-      date: date || null,
-      type,
-      notes: notes.trim() || null,
-    });
+    const saved = await onSubmit(parsed.data);
     if (!saved) return;
 
     setTitle("");
@@ -921,7 +950,7 @@ function GradeForm({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <form onSubmit={submit} noValidate className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <h2 className="text-lg font-semibold text-ink">{isEditing ? "Note bearbeiten" : "Note erfassen"}</h2>
       <div className="mt-4 grid gap-3">
         <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -930,7 +959,9 @@ function GradeForm({
             value={selectedSubjectId}
             onChange={(event) => setSubjectId(event.target.value)}
             disabled={subjects.length === 0}
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(fieldErrors.subjectId)}
+            aria-describedby={fieldErrors.subjectId ? fieldErrorId(formId, "subjectId") : undefined}
+            className={inputClassName(Boolean(fieldErrors.subjectId))}
           >
             {subjects.length === 0 ? <option>Erst ein Fach erstellen</option> : null}
             {subjects.map((subject) => (
@@ -939,6 +970,7 @@ function GradeForm({
               </option>
             ))}
           </select>
+          <FieldError id={fieldErrorId(formId, "subjectId")} message={fieldErrors.subjectId} />
         </label>
         <label className="grid gap-1 text-sm font-medium text-black/70">
           Semester
@@ -960,9 +992,11 @@ function GradeForm({
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            required
-            className="rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(fieldErrors.title)}
+            aria-describedby={fieldErrors.title ? fieldErrorId(formId, "title") : undefined}
+            className={inputClassName(Boolean(fieldErrors.title))}
           />
+          <FieldError id={fieldErrorId(formId, "title")} message={fieldErrors.title} />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="grid gap-1 text-sm font-medium text-black/70">
@@ -971,9 +1005,11 @@ function GradeForm({
               value={gradeValueInput}
               onChange={(event) => setGradeValueInput(event.target.value)}
               inputMode="decimal"
-              required
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.gradeValue)}
+              aria-describedby={fieldErrors.gradeValue ? fieldErrorId(formId, "gradeValue") : undefined}
+              className={inputClassName(Boolean(fieldErrors.gradeValue))}
             />
+            <FieldError id={fieldErrorId(formId, "gradeValue")} message={fieldErrors.gradeValue} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Gewicht
@@ -981,9 +1017,11 @@ function GradeForm({
               value={weightInput}
               onChange={(event) => setWeightInput(event.target.value)}
               inputMode="decimal"
-              required
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.weight)}
+              aria-describedby={fieldErrors.weight ? fieldErrorId(formId, "weight") : undefined}
+              className={inputClassName(Boolean(fieldErrors.weight))}
             />
+            <FieldError id={fieldErrorId(formId, "weight")} message={fieldErrors.weight} />
           </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -993,8 +1031,11 @@ function GradeForm({
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
-              className="rounded-md border border-black/15 px-3 py-2"
+              aria-invalid={Boolean(fieldErrors.date)}
+              aria-describedby={fieldErrors.date ? fieldErrorId(formId, "date") : undefined}
+              className={inputClassName(Boolean(fieldErrors.date))}
             />
+            <FieldError id={fieldErrorId(formId, "date")} message={fieldErrors.date} />
           </label>
           <label className="grid gap-1 text-sm font-medium text-black/70">
             Typ
@@ -1017,8 +1058,11 @@ function GradeForm({
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
-            className="resize-none rounded-md border border-black/15 px-3 py-2"
+            aria-invalid={Boolean(fieldErrors.notes)}
+            aria-describedby={fieldErrors.notes ? fieldErrorId(formId, "notes") : undefined}
+            className={inputClassName(Boolean(fieldErrors.notes), "resize-none")}
           />
+          <FieldError id={fieldErrorId(formId, "notes")} message={fieldErrors.notes} />
         </label>
         <div className="flex flex-wrap gap-2">
           <button
