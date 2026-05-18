@@ -29,6 +29,8 @@ import {
   updateSubject,
   updateTerm,
 } from "./api-client";
+import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
+import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 
 const DEFAULT_SUBJECT_COLOR = "#1f7a68";
 
@@ -395,16 +397,22 @@ function DashboardView({
   snapshot: AccountSnapshot;
   onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
 }) {
+  const certificationStatus = deriveSavedCertificationStatus(snapshot.subjects, snapshot.grades);
+
   return (
     <>
       <AccountSummary snapshot={snapshot} />
+      <CertificationStatusCards status={certificationStatus} />
       <section className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-        <GradeForm
-          disabled={disabled}
-          subjects={snapshot.subjects.filter((subject) => !subject.archived)}
-          terms={snapshot.terms}
-          onSubmit={onCreateGrade}
-        />
+        <div className="grid gap-4">
+          <GradeForm
+            disabled={disabled}
+            subjects={snapshot.subjects.filter((subject) => !subject.archived)}
+            terms={snapshot.terms}
+            onSubmit={onCreateGrade}
+          />
+          <CertificationInputGuide />
+        </div>
         <div className="grid gap-4">
           <RequiredGradeShortcut snapshot={snapshot} />
           <RecentGrades grades={snapshot.grades} />

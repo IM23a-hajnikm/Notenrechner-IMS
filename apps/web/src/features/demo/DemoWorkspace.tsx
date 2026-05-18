@@ -11,6 +11,8 @@ import {
   minimumExactAverageForRoundedHalf,
 } from "@notenrechner/shared";
 
+import { CertificationStatusCards } from "../certification/CertificationStatusCards";
+import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 import { DemoGrade, DemoState, DemoSubject, DemoTerm, demoSeed } from "./demo-data";
 
 const STORAGE_KEY = "notenrechner-v2-demo";
@@ -175,6 +177,7 @@ export function DemoWorkspace() {
   const belowFour = state.grades.filter((grade) => grade.value < 4);
   const subjectSummaries = useMemo(() => buildSubjectSummaries(state.subjects, state.grades), [state]);
   const activeTerm = state.terms.find((term) => term.isActive);
+  const certificationStatus = useMemo(() => deriveSavedCertificationStatus(state.subjects, state.grades), [state]);
   const requiredGrade = useMemo(() => {
     const parsedTarget = Number(targetRounded);
     const parsedUpcomingWeight = Number(upcomingWeight);
@@ -435,6 +438,8 @@ export function DemoWorkspace() {
           <Metric label="Aktives Semester" value={activeTerm?.name ?? "-"} />
           <Metric label="Erfasste Noten" value={String(state.grades.length)} />
         </section>
+
+        <CertificationStatusCards status={certificationStatus} />
 
         <section className="mt-6 grid gap-6 xl:grid-cols-[390px_1fr]">
           <div className="grid gap-4">
