@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { CalculationsModule } from "./calculations/calculations.module";
 import { GradesModule } from "./grades/grades.module";
 import { HealthModule } from "./health/health.module";
+import { ImportExportModule } from "./import-export/import-export.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SubjectsModule } from "./subjects/subjects.module";
 import { TermsModule } from "./terms/terms.module";
@@ -21,6 +22,7 @@ import { TermsModule } from "./terms/terms.module";
     SubjectsModule,
     TermsModule,
     GradesModule,
+    ImportExportModule,
   ],
 })
 export class AppModule {}
