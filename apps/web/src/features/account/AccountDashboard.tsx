@@ -86,11 +86,60 @@ type GradeFormInput = {
   notes: string | null;
 };
 
+type GradeSort =
+  | "date-desc"
+  | "date-asc"
+  | "grade-desc"
+  | "grade-asc"
+  | "subject-asc"
+  | "subject-desc"
+  | "term-asc"
+  | "term-desc"
+  | "weight-desc"
+  | "weight-asc";
+
+type GradeFilters = {
+  search: string;
+  subjectId: string;
+  termId: string;
+  type: string;
+  dateFrom: string;
+  dateTo: string;
+  belowFourOnly: boolean;
+  sort: GradeSort;
+};
+
 const ACCOUNT_VIEWS: { value: AccountView; label: string; description: string }[] = [
   { value: "dashboard", label: "Dashboard", description: "Ueberblick" },
   { value: "subjects", label: "Faecher", description: "Struktur" },
   { value: "terms", label: "Semester", description: "Zeitraeume" },
   { value: "grades", label: "Noten", description: "Erfassung" },
+];
+
+const NO_TERM_FILTER = "__none";
+
+const DEFAULT_GRADE_FILTERS: GradeFilters = {
+  search: "",
+  subjectId: "",
+  termId: "",
+  type: "",
+  dateFrom: "",
+  dateTo: "",
+  belowFourOnly: false,
+  sort: "date-desc",
+};
+
+const GRADE_SORTS: { value: GradeSort; label: string }[] = [
+  { value: "date-desc", label: "Datum neu zuerst" },
+  { value: "date-asc", label: "Datum alt zuerst" },
+  { value: "grade-desc", label: "Note hoch zuerst" },
+  { value: "grade-asc", label: "Note tief zuerst" },
+  { value: "subject-asc", label: "Fach A-Z" },
+  { value: "subject-desc", label: "Fach Z-A" },
+  { value: "term-asc", label: "Semester A-Z" },
+  { value: "term-desc", label: "Semester Z-A" },
+  { value: "weight-desc", label: "Gewicht hoch zuerst" },
+  { value: "weight-asc", label: "Gewicht tief zuerst" },
 ];
 
 export function AccountDashboard() {
@@ -1169,6 +1218,14 @@ function GradesPanel({
 }) {
   const [targetRounded, setTargetRounded] = useState("4.5");
   const [upcomingWeight, setUpcomingWeight] = useState("1");
+  const [filters, setFilters] = useState<GradeFilters>(DEFAULT_GRADE_FILTERS);
+  const subjectOptions = useMemo(() => buildAccountSubjectFilterOptions(grades), [grades]);
+  const termOptions = useMemo(() => buildAccountTermFilterOptions(grades), [grades]);
+  const filteredGrades = useMemo(() => filterAndSortAccountGrades(grades, filters), [grades, filters]);
+  const activeFilterLabels = useMemo(
+    () => buildAccountActiveFilterLabels(filters, subjectOptions, termOptions),
+    [filters, subjectOptions, termOptions],
+  );
   const items = useMemo(
     () => grades.map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) })),
     [grades],
@@ -1217,8 +1274,128 @@ function GradesPanel({
           {requiredGrade === null ? "-" : requiredGrade.toFixed(2)}
         </span>
       </p>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1.6fr)_repeat(3,minmax(140px,1fr))]">
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Suche
+          <input
+            value={filters.search}
+            onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+            placeholder="Titel oder Notizen"
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Fach
+          <select
+            value={filters.subjectId}
+            onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Faecher</option>
+            {subjectOptions.map((subject) => (
+              <option key={subject.id} value={subject.id}>
+                {subject.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Semester
+          <select
+            value={filters.termId}
+            onChange={(event) => setFilters((current) => ({ ...current, termId: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Semester</option>
+            <option value={NO_TERM_FILTER}>Kein Semester</option>
+            {termOptions.map((term) => (
+              <option key={term.id} value={term.id}>
+                {term.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Typ
+          <select
+            value={filters.type}
+            onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            <option value="">Alle Typen</option>
+            {GRADE_TYPES.map((gradeType) => (
+              <option key={gradeType.value} value={gradeType.value}>
+                {gradeType.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Von
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(event) => setFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Bis
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={(event) => setFilters((current) => ({ ...current, dateTo: event.target.value }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-black/60">
+          Sortierung
+          <select
+            value={filters.sort}
+            onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value as GradeSort }))}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm"
+          >
+            {GRADE_SORTS.map((sort) => (
+              <option key={sort.value} value={sort.value}>
+                {sort.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-xs font-medium text-black/60">
+          <input
+            type="checkbox"
+            checked={filters.belowFourOnly}
+            onChange={(event) => setFilters((current) => ({ ...current, belowFourOnly: event.target.checked }))}
+          />
+          Unter 4.0
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-black/60">
+        <p>
+          {filteredGrades.length} von {grades.length} Noten
+        </p>
+        {activeFilterLabels.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setFilters(DEFAULT_GRADE_FILTERS)}
+            className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-ink hover:border-black/30"
+          >
+            Filter zuruecksetzen
+          </button>
+        ) : null}
+      </div>
+      {activeFilterLabels.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {activeFilterLabels.map((label) => (
+            <span key={label} className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold text-black/60">
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-4 overflow-hidden rounded-md border border-black/10">
-        {grades.map((grade) => (
+        {filteredGrades.map((grade) => (
           <div
             key={grade.id}
             className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[1fr_auto_auto]"
@@ -1260,6 +1437,9 @@ function GradesPanel({
           </div>
         ))}
         {grades.length === 0 ? <p className="p-4 text-sm text-black/60">Noch keine Noten erfasst.</p> : null}
+        {grades.length > 0 && filteredGrades.length === 0 ? (
+          <p className="p-4 text-sm text-black/60">Keine Noten passen zu den aktuellen Filtern.</p>
+        ) : null}
       </div>
     </section>
   );
@@ -1298,6 +1478,106 @@ function byAverageAsc(left: { exactAverage: number | null }, right: { exactAvera
 
 function byGradeDateDesc(left: AccountGrade, right: AccountGrade) {
   return dateSortValue(right.date) - dateSortValue(left.date);
+}
+
+function filterAndSortAccountGrades(grades: AccountGrade[], filters: GradeFilters): AccountGrade[] {
+  return grades
+    .filter((grade) => matchesAccountGradeFilters(grade, filters))
+    .sort((left, right) => {
+      const compared = compareAccountGrades(left, right, filters.sort);
+      if (compared !== 0) return compared;
+      return byGradeDateDesc(left, right) || left.title.localeCompare(right.title);
+    });
+}
+
+function matchesAccountGradeFilters(grade: AccountGrade, filters: GradeFilters): boolean {
+  const search = filters.search.trim().toLowerCase();
+  if (search && !`${grade.title} ${grade.notes ?? ""}`.toLowerCase().includes(search)) return false;
+  if (filters.subjectId && grade.subjectId !== filters.subjectId) return false;
+  if (filters.termId === NO_TERM_FILTER && grade.termId !== null) return false;
+  if (filters.termId && filters.termId !== NO_TERM_FILTER && grade.termId !== filters.termId) return false;
+  if (filters.type && grade.type !== filters.type) return false;
+  if (filters.belowFourOnly && gradeValue(grade) >= 4) return false;
+
+  const gradeDate = dateInputValue(grade.date);
+  if (filters.dateFrom && (!gradeDate || gradeDate < filters.dateFrom)) return false;
+  if (filters.dateTo && (!gradeDate || gradeDate > filters.dateTo)) return false;
+
+  return true;
+}
+
+function compareAccountGrades(left: AccountGrade, right: AccountGrade, sort: GradeSort): number {
+  switch (sort) {
+    case "date-asc":
+      return dateSortValue(left.date) - dateSortValue(right.date);
+    case "grade-desc":
+      return gradeValue(right) - gradeValue(left);
+    case "grade-asc":
+      return gradeValue(left) - gradeValue(right);
+    case "subject-asc":
+      return left.subject.name.localeCompare(right.subject.name);
+    case "subject-desc":
+      return right.subject.name.localeCompare(left.subject.name);
+    case "term-asc":
+      return gradeTermLabel(left).localeCompare(gradeTermLabel(right));
+    case "term-desc":
+      return gradeTermLabel(right).localeCompare(gradeTermLabel(left));
+    case "weight-desc":
+      return gradeWeight(right) - gradeWeight(left);
+    case "weight-asc":
+      return gradeWeight(left) - gradeWeight(right);
+    case "date-desc":
+    default:
+      return dateSortValue(right.date) - dateSortValue(left.date);
+  }
+}
+
+function buildAccountSubjectFilterOptions(grades: AccountGrade[]) {
+  const subjects = new Map<string, string>();
+  for (const grade of grades) {
+    subjects.set(grade.subjectId, grade.subject.name);
+  }
+
+  return Array.from(subjects, ([id, label]) => ({ id, label })).sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
+}
+
+function buildAccountTermFilterOptions(grades: AccountGrade[]) {
+  const terms = new Map<string, string>();
+  for (const grade of grades) {
+    if (grade.termId && grade.term) terms.set(grade.termId, grade.term.name);
+  }
+
+  return Array.from(terms, ([id, label]) => ({ id, label })).sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
+}
+
+function buildAccountActiveFilterLabels(
+  filters: GradeFilters,
+  subjects: { id: string; label: string }[],
+  terms: { id: string; label: string }[],
+): string[] {
+  const labels: string[] = [];
+  if (filters.search.trim()) labels.push(`Suche: ${filters.search.trim()}`);
+  if (filters.subjectId) labels.push(`Fach: ${subjects.find((subject) => subject.id === filters.subjectId)?.label}`);
+  if (filters.termId === NO_TERM_FILTER) labels.push("Semester: keines");
+  if (filters.termId && filters.termId !== NO_TERM_FILTER) {
+    labels.push(`Semester: ${terms.find((term) => term.id === filters.termId)?.label}`);
+  }
+  if (filters.type) labels.push(`Typ: ${gradeTypeLabel(filters.type as GradeType)}`);
+  if (filters.dateFrom) labels.push(`Von: ${filters.dateFrom}`);
+  if (filters.dateTo) labels.push(`Bis: ${filters.dateTo}`);
+  if (filters.belowFourOnly) labels.push("Unter 4.0");
+  if (filters.sort !== DEFAULT_GRADE_FILTERS.sort) {
+    labels.push(`Sort: ${GRADE_SORTS.find((sort) => sort.value === filters.sort)?.label}`);
+  }
+  return labels.filter((label) => !label.endsWith("undefined"));
+}
+
+function gradeTermLabel(grade: AccountGrade): string {
+  return grade.term?.name ?? "kein Semester";
 }
 
 function dateSortValue(value: string | null): number {
