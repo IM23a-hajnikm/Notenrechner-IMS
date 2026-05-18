@@ -282,6 +282,184 @@ describe("API endpoints", () => {
     await agent.delete(`/subjects/${subjectId}`).expect(200).expect({ deleted: true });
   });
 
+  it("exports the current user's subjects, terms, and grades as CSV", async () => {
+    const server = getServer(app);
+    const owner = request.agent(server);
+    const outsider = request.agent(server);
+    await registerAccount(owner, "csv-owner@example.com");
+    await registerAccount(outsider, "csv-outsider@example.com");
+
+    const subjectId = await owner
+      .post("/subjects")
+      .send({
+        name: "Mathematik",
+        shortName: "MA",
+        color: "#3366ff",
+        subjectType: "regular",
+      })
+      .expect(201)
+      .then(({ body }) => body.id as string);
+    const termId = await owner
+      .post("/terms")
+      .send({ name: "Semester 1", startDate: "2026-01-01", endDate: "2026-06-30", isActive: true })
+      .expect(201)
+      .then(({ body }) => body.id as string);
+    await owner
+      .post("/grades")
+      .send({
+        subjectId,
+        termId,
+        title: "Pruefung 1",
+        gradeValue: 5.25,
+        weight: 1.5,
+        date: "2026-03-15",
+        type: "exam",
+        notes: "Export me",
+      })
+      .expect(201);
+
+    const outsiderSubjectId = await outsider
+      .post("/subjects")
+      .send({ name: "Outsider subject" })
+      .expect(201)
+      .then(({ body }) => body.id as string);
+    await outsider
+      .post("/grades")
+      .send({ subjectId: outsiderSubjectId, title: "Outsider grade", gradeValue: 6 })
+      .expect(201);
+
+    await owner
+      .get("/import-export/csv")
+      .expect(200)
+      .expect("Content-Type", /text\/csv/)
+      .expect(({ headers, text }) => {
+        expect(headers["content-disposition"]).toContain("notenrechner-export.csv");
+        expect(text).toContain("recordType,id,name,shortName,color,subjectType");
+        expect(text).toContain("subject,");
+        expect(text).toContain("term,");
+        expect(text).toContain("grade,");
+        expect(text).toContain("Mathematik");
+        expect(text).toContain("Semester 1");
+        expect(text).toContain("Pruefung 1");
+        expect(text).not.toContain("Outsider");
+      });
+  });
+
+  it("imports valid grade CSV rows for owned subjects and terms", async () => {
+    const agent = request.agent(getServer(app));
+    await registerAccount(agent, "csv-import@example.com");
+
+    await agent.post("/subjects").send({ name: "Mathematik", shortName: "MA" }).expect(201);
+    await agent.post("/terms").send({ name: "Semester 1" }).expect(201);
+
+    await agent
+      .post("/import-export/grades/csv")
+      .send({
+        csv: [
+          "subjectName,termName,title,gradeValue,weight,date,type,notes",
+          "Mathematik,Semester 1,CSV Pruefung,5.25,1.5,2026-04-02,project,Imported from CSV",
+        ].join("\n"),
+      })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body).toEqual({ imported: 1, errors: [] });
+      });
+
+    await agent
+      .get("/grades")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(1);
+        expect(body[0]).toMatchObject({
+          title: "CSV Pruefung",
+          gradeValue: 5.25,
+          weight: 1.5,
+          type: "project",
+          notes: "Imported from CSV",
+          subject: { name: "Mathematik" },
+          term: { name: "Semester 1" },
+        });
+      });
+  });
+
+  it("rejects invalid CSV rows with row-level errors and creates nothing", async () => {
+    const agent = request.agent(getServer(app));
+    await registerAccount(agent, "csv-invalid@example.com");
+    await agent.post("/subjects").send({ name: "Mathematik" }).expect(201);
+
+    await agent
+      .post("/import-export/grades/csv")
+      .send({
+        csv: [
+          "subjectName,title,gradeValue,weight,date,type",
+          "Mathematik,Valid row should not persist,5,1,2026-03-01,exam",
+          "Missing,Bad row,7,-1,not-a-date,unknown",
+        ].join("\n"),
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        const errors = body.errors as Array<{ row: number; message: string }>;
+        expect(errors).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ row: 3, message: expect.stringContaining("subjectName") }),
+            expect.objectContaining({ row: 3, message: expect.stringContaining("grade value") }),
+            expect.objectContaining({ row: 3, message: expect.stringContaining("weight") }),
+            expect.objectContaining({ row: 3, message: expect.stringContaining("date") }),
+            expect.objectContaining({ row: 3, message: expect.stringContaining("Grade type") }),
+          ]),
+        );
+      });
+
+    await agent
+      .get("/grades")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(0);
+      });
+  });
+
+  it("rejects CSV imports that reference another user's subject or term", async () => {
+    const server = getServer(app);
+    const owner = request.agent(server);
+    const outsider = request.agent(server);
+    await registerAccount(owner, "csv-owner-reject@example.com");
+    await registerAccount(outsider, "csv-outsider-reject@example.com");
+
+    const subjectId = await owner
+      .post("/subjects")
+      .send({ name: "Wirtschaft" })
+      .expect(201)
+      .then(({ body }) => body.id as string);
+    const termId = await owner
+      .post("/terms")
+      .send({ name: "Semester 2" })
+      .expect(201)
+      .then(({ body }) => body.id as string);
+
+    await outsider
+      .post("/import-export/grades/csv")
+      .send({
+        csv: ["subjectId,termId,title,gradeValue", `${subjectId},${termId},Stolen grade,5`].join("\n"),
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        const errors = body.errors as Array<{ row: number; message: string }>;
+        expect(errors).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ row: 2, message: "subjectId does not belong to the current user." }),
+            expect.objectContaining({ row: 2, message: "termId does not belong to the current user." }),
+          ]),
+        );
+      });
+
+    await outsider
+      .get("/grades")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toHaveLength(0);
+      });
+  });
+
   it("prevents cross-user reads and mutations for subjects, terms, and grades", async () => {
     const server = getServer(app);
     const owner = request.agent(server);
