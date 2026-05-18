@@ -1,0 +1,30 @@
+{
+  "name": "notenrechner-v2",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.6.2",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm -w @notenrechner/shared run build && concurrently \"npm -w @notenrechner/api run dev\" \"npm -w @notenrechner/web run dev\"",
+    "dev:api": "npm -w @notenrechner/api run dev",
+    "dev:web": "npm -w @notenrechner/web run dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run lint --workspaces --if-present",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm -w @notenrechner/shared run build && npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "prettier": "^3.3.3",
+    "prisma": "^5.20.0",
+    "typescript": "^5.6.3"
+  }
+}

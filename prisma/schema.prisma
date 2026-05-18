@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubjectType {
+  regular
+  bms_exam_subject
+  bms_non_exam_subject
+  bms_idpa_idaf
+  efz_school_module
+  efz_uek_module
+  custom
+}
+
+enum GradeType {
+  exam
+  quiz
+  project
+  module
+  oral
+  written
+  other
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  subjects      Subject[]
+  terms         Term[]
+  grades        Grade[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Subject {
+  id          String      @id @default(cuid())
+  userId      String
+  name        String
+  shortName   String?
+  color       String?
+  subjectType SubjectType @default(regular)
+  archived    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grades Grade[]
+
+  @@index([userId])
+  @@index([userId, archived])
+  @@unique([userId, name])
+}
+
+model Term {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  isActive  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grades Grade[]
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@unique([userId, name])
+}
+
+model Grade {
+  id         String    @id @default(cuid())
+  userId     String
+  subjectId  String
+  termId     String?
+  title      String
+  gradeValue Decimal   @db.Decimal(4, 2)
+  weight     Decimal   @default(1) @db.Decimal(8, 3)
+  date       DateTime?
+  type       GradeType @default(other)
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  term    Term?    @relation(fields: [termId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, subjectId])
+  @@index([userId, termId])
+  @@index([userId, date])
+}
