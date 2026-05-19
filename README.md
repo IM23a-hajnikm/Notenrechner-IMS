@@ -4,12 +4,13 @@ Production-oriented Swiss grade calculator for students. The project is a clean 
 
 ## Current Status
 
-Student MVP is in production-polish mode.
+Student MVP is feature-complete for v1. Remaining production readiness work is limited to operator deployment and the upstream Next.js/PostCSS advisory tracked in GitHub #20.
 
 - Monorepo structure with shared calculation logic, NestJS API, Next.js web app, and Prisma/PostgreSQL persistence
 - No-login demo mode with local browser storage
 - Authenticated account mode with user-owned subjects, terms, grades, and CSV import/export
 - Dedicated required-grade, BMS, and EFZ calculator pages
+- Responsive UI, accessible busy/error states, and light/dark theme support
 - Prisma migration and local seed data for account-mode smoke testing
 - Deployment, environment, and smoke-test notes in [docs/deployment.md](docs/deployment.md)
 
@@ -300,9 +301,9 @@ Screenshot refresh:
 - [x] Prisma migration and deterministic local seed account
 - [x] Deployment and operator documentation
 - [x] Local Playwright end-to-end smoke tests for MVP workflows
-- [ ] Responsive, accessibility, and UI-state polish pass
-- [ ] Dark mode theme support
-- [ ] Unblocked dependency-security cleanup for upstream toolchain advisories
+- [x] Responsive, accessibility, and UI-state polish pass
+- [x] Dark mode theme support
+- [ ] Stable Next.js/PostCSS dependency-security cleanup after upstream fix
 
 ## Known Limitations
 
@@ -310,4 +311,4 @@ Screenshot refresh:
 - Teacher accounts, classes, invite codes, teacher-shared grades, PDF reports, Excel import, advanced analytics, and native/PWA wrappers are later features.
 - The seed account is local demo data only and should not be used in production.
 - The account-mode screenshot in this README uses local sample data; production data depends on the deployed database.
-- Moderate dependency advisories remain blocked on upstream Next.js/Vitest toolchain updates.
+- One moderate dependency advisory remains blocked on a stable upstream Next.js release that uses a patched nested PostCSS dependency.
