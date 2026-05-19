@@ -1,7 +1,8 @@
-# Next/PostCSS stable audit blocker
+# Next/PostCSS stable audit resolution
 
 Date: 2026-05-18
 Rechecked: 2026-05-19
+Resolved: 2026-05-19
 
 While working issue #20, the Vitest/Vite/esbuild audit path was mitigated by upgrading
 Vitest to 4.1.6 in the API and shared workspaces. The remaining `npm audit
@@ -38,5 +39,15 @@ Verification after the partial mitigation:
 - A temp workspace with a root `postinstall` patch still produced an invalid `npm ls`
   result, even though the patched installed manifest and audit output looked clean.
 
-Issue #20 should remain blocked until a stable Next release includes a fixed PostCSS
-dependency or a safe vendor-supported override path becomes available.
+Resolution:
+
+- Added a root npm override for `next -> postcss@8.5.14`.
+- Updated `package-lock.json` so Next's PostCSS edge resolves to the existing
+  top-level `postcss@8.5.14` package instead of installing nested `postcss@8.4.31`.
+- Re-ran `npm install --ignore-scripts --no-audit --no-fund`, which removed the
+  vulnerable nested package from `node_modules`.
+- Verified `npm ls next postcss vitest vite esbuild` reports a valid tree with
+  Next resolving `postcss@8.5.14`.
+- Verified `npm audit --audit-level=moderate --json` reports zero vulnerabilities.
+
+Keep the override until stable Next declares a patched PostCSS dependency directly.
