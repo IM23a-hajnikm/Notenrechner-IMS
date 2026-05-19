@@ -17,6 +17,10 @@ Vitest to 4.1.6 in the API and shared workspaces. The remaining `npm audit
   `npm ls next postcss` failing with `ELSPROBLEMS` because `postcss@8.5.14` is
   invalid against Next's exact `postcss@8.4.31` dependency. That override path is
   not production-ready.
+- Combining an override with an install-time patch to `node_modules/next/package.json`
+  was also tested. It can make the installed Next manifest say `postcss@8.5.14`,
+  but `npm ls` still fails because `package-lock.json` preserves Next's exact
+  `postcss@8.4.31` dependency metadata.
 
 Verification after the partial mitigation:
 
@@ -31,6 +35,8 @@ Verification after the partial mitigation:
   `next@16.2.6` with `postcss@8.4.31`.
 - A temp workspace generated from the actual package manifests could make audit pass
   with an override, but only by producing an invalid npm dependency graph.
+- A temp workspace with a root `postinstall` patch still produced an invalid `npm ls`
+  result, even though the patched installed manifest and audit output looked clean.
 
 Issue #20 should remain blocked until a stable Next release includes a fixed PostCSS
 dependency or a safe vendor-supported override path becomes available.
