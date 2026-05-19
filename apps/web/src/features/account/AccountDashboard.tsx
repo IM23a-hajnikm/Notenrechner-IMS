@@ -252,9 +252,12 @@ export function AccountDashboard() {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-[#f6f8f7]">
+      <main className="min-h-screen bg-[#f6f8f7]" aria-busy="true">
         <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-5">
-          <p className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black/70 shadow-soft">
+          <p
+            className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black/70 shadow-soft"
+            role="status"
+          >
             Account wird geladen...
           </p>
         </div>
@@ -271,7 +274,7 @@ export function AccountDashboard() {
           </Link>
           <section className="mt-6 rounded-lg border border-black/10 bg-white p-6 shadow-soft">
             <h1 className="text-2xl font-semibold text-ink">Einloggen erforderlich</h1>
-            <p className="mt-2 text-sm leading-6 text-black/60">
+            <p className="mt-2 text-sm leading-6 text-black/60" role={error ? "alert" : "status"}>
               {error ?? "Bitte melde dich an, um gespeicherte Noten zu verwenden."}
             </p>
             <Link
@@ -287,7 +290,7 @@ export function AccountDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f8f7]">
+    <main className="min-h-screen bg-[#f6f8f7]" aria-busy={isMutating}>
       <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8">
         <nav className="flex flex-wrap items-center justify-between gap-4 border-b border-black/10 pb-4">
           <div>
@@ -295,7 +298,7 @@ export function AccountDashboard() {
               Notenrechner v2
             </Link>
             <h1 className="mt-1 text-2xl font-semibold text-ink">Account-Modus</h1>
-            <p className="text-sm text-black/60">{snapshot.user.email}</p>
+            <p className="break-all text-sm text-black/60">{snapshot.user.email}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
@@ -320,7 +323,11 @@ export function AccountDashboard() {
           </div>
         </nav>
 
-        {error ? <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {error ? (
+          <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        ) : null}
 
         <AccountViewNav currentView={currentView} onChange={setCurrentView} snapshot={snapshot} />
 
@@ -1148,20 +1155,20 @@ function SubjectsPanel({
         {summaries.map((summary) => (
           <article key={summary.subject.id} className="rounded-md border border-black/10 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
                   <span
-                    className="h-3 w-3 rounded-full"
+                    className="h-3 w-3 shrink-0 rounded-full"
                     style={{ backgroundColor: summary.subject.color ?? DEFAULT_SUBJECT_COLOR }}
                     aria-hidden
                   />
-                  <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
+                  <h3 className="min-w-0 break-words font-semibold text-ink">{summary.subject.name}</h3>
                 </div>
                 <p className="mt-1 text-xs uppercase tracking-wide text-black/45">
                   {summary.subject.archived ? "Archiviert" : subjectTypeLabel(summary.subject.subjectType)}
                 </p>
               </div>
-              <p className="text-2xl font-semibold text-ink">
+              <p className="shrink-0 text-2xl font-semibold text-ink">
                 {summary.semesterGrade === null ? "-" : summary.semesterGrade.toFixed(1)}
               </p>
             </div>
@@ -1225,13 +1232,13 @@ function TermsPanel({
             key={term.id}
             className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 p-4 last:border-b-0"
           >
-            <div>
-              <p className="font-semibold text-ink">{term.name}</p>
-              <p className="text-sm text-black/60">
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-ink">{term.name}</p>
+              <p className="break-words text-sm text-black/60">
                 {formatDate(term.startDate) || "Offen"} bis {formatDate(term.endDate) || "offen"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
               <button
                 disabled={disabled}
                 onClick={() => onEdit(term)}
@@ -1432,23 +1439,23 @@ function GradesPanel({
         {filteredGrades.map((grade) => (
           <div
             key={grade.id}
-            className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[1fr_auto_auto]"
+            className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto_auto]"
           >
-            <div>
-              <p className="font-semibold text-ink">{grade.title}</p>
-              <p className="text-sm text-black/60">
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-ink">{grade.title}</p>
+              <p className="break-words text-sm text-black/60">
                 {grade.subject.name} / {grade.term?.name ?? "kein Semester"} / {gradeTypeLabel(grade.type)} / Gewicht{" "}
                 {gradeWeight(grade)}
               </p>
               {grade.date || grade.notes ? (
-                <p className="mt-1 text-xs text-black/45">
+                <p className="mt-1 break-words text-xs text-black/45">
                   {formatDate(grade.date) ?? "Kein Datum"}
                   {grade.notes ? ` - ${grade.notes}` : ""}
                 </p>
               ) : null}
             </div>
-            <p className="text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
-            <div className="flex flex-wrap gap-2 md:justify-end">
+            <p className="shrink-0 text-2xl font-semibold text-ink">{gradeValue(grade).toFixed(2)}</p>
+            <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
               <button
                 disabled={disabled}
                 onClick={() => onEdit(grade)}
@@ -1483,7 +1490,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <article className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <p className="text-sm text-black/60">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold text-ink">{value}</p>
+      <p className="mt-2 break-words text-2xl font-semibold leading-tight text-ink">{value}</p>
     </article>
   );
 }

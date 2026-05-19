@@ -106,7 +106,7 @@ export function fieldErrorId(formId: string, field: string): string {
 }
 
 export function inputClassName(hasError: boolean, extra = ""): string {
-  return ["rounded-md border px-3 py-2", hasError ? "border-red-300 bg-red-50" : "border-black/15", extra]
+  return ["min-w-0 w-full rounded-md border px-3 py-2", hasError ? "border-red-300 bg-red-50" : "border-black/15", extra]
     .filter(Boolean)
     .join(" ");
 }

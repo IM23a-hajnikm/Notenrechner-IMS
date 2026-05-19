@@ -42,6 +42,10 @@ test.describe("demo mode", () => {
 
     await expect(gradeCard).toContainText("4.25");
 
+    page.once("dialog", async (dialog) => {
+      expect(dialog.message()).toContain("E2E Demo Probe");
+      await dialog.accept();
+    });
     await gradeCard.getByRole("button", { name: "Loeschen" }).click();
     await expect(page.getByText("E2E Demo Probe")).toHaveCount(0);
   });
