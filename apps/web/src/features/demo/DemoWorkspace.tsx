@@ -7,6 +7,8 @@ import { GradeType, SubjectType, calculateSemesterGrade, calculateWeightedAverag
 import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
+import { CsvImportExportPanel } from "../import-export/CsvImportExportPanel";
+import { CsvImportPreview, buildGradeCsv } from "../import-export/grade-csv";
 import {
   FieldError,
   FieldErrors,
@@ -403,6 +405,31 @@ export function DemoWorkspace() {
     setResetArmed(false);
   }
 
+  function exportDemoCsv() {
+    return buildGradeCsv(buildDemoCsvGrades(state.grades), state.subjects, state.terms);
+  }
+
+  function importDemoCsv(_csv: string, preview: CsvImportPreview) {
+    const importedGrades: DemoGrade[] = preview.drafts.map((draft) => ({
+      id: createId("grade"),
+      subjectId: draft.subjectId,
+      termId: draft.termId,
+      title: draft.title,
+      value: draft.value,
+      weight: draft.weight,
+      date: draft.date,
+      type: draft.type,
+      notes: draft.notes,
+    }));
+
+    setState((current) => ({
+      ...current,
+      grades: [...importedGrades, ...current.grades],
+    }));
+
+    return { imported: importedGrades.length, errors: [] };
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f8f7]">
       <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8">
@@ -500,6 +527,15 @@ export function DemoWorkspace() {
               }}
               onChange={setGradeDraft}
               onSubmit={saveGrade}
+            />
+            <CsvImportExportPanel
+              description="Exportiert und importiert lokale Demo-Noten in diesem Browser."
+              filename="notenrechner-demo-export.csv"
+              subjects={state.subjects}
+              terms={state.terms}
+              title="CSV Import/Export"
+              onExport={exportDemoCsv}
+              onImport={importDemoCsv}
             />
           </div>
 
@@ -1337,6 +1373,19 @@ function buildDemoRequiredGradeContextGrades(grades: DemoGrade[]) {
     termId: grade.termId,
     value: grade.value,
     weight: grade.weight,
+  }));
+}
+
+function buildDemoCsvGrades(grades: DemoGrade[]) {
+  return grades.map((grade) => ({
+    subjectId: grade.subjectId,
+    termId: grade.termId,
+    title: grade.title,
+    value: grade.value,
+    weight: grade.weight,
+    date: grade.date,
+    type: grade.type,
+    notes: grade.notes,
   }));
 }
 

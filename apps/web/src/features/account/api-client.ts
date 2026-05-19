@@ -66,6 +66,16 @@ export type AccountSnapshot = {
   grades: AccountGrade[];
 };
 
+export type CsvImportError = {
+  row: number;
+  message: string;
+};
+
+export type CsvImportResult = {
+  imported: number;
+  errors: CsvImportError[];
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -214,6 +224,38 @@ export async function deleteGrade(id: string) {
   });
 }
 
+export async function exportAccountCsv(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/import-export/csv`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.text();
+}
+
+export async function importAccountGradesCsv(csv: string): Promise<CsvImportResult> {
+  const response = await fetch(`${API_BASE_URL}/import-export/grades/csv`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv }),
+  });
+
+  if (!response.ok) {
+    const body = await readErrorBody(response);
+    const errors = extractCsvImportErrors(body);
+    if (errors.length > 0) return { imported: 0, errors };
+
+    throw new ApiError(errorMessageFromBody(body, response.status), response.status);
+  }
+
+  return (await response.json()) as CsvImportResult;
+}
+
 async function apiRequest<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const requestInit: RequestInit = {
     method: init.method ?? "GET",
@@ -236,14 +278,36 @@ async function apiRequest<T>(path: string, init: { method?: string; body?: unkno
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { message?: string | string[]; error?: string };
-    if (Array.isArray(body.message)) return body.message.join(" ");
-    if (body.message) return body.message;
-    if (body.error) return body.error;
-  } catch {
-    return `Request failed with status ${response.status}.`;
-  }
+  const body = await readErrorBody(response);
+  return errorMessageFromBody(body, response.status);
+}
 
-  return `Request failed with status ${response.status}.`;
+async function readErrorBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function errorMessageFromBody(body: unknown, status: number): string {
+  if (isRecord(body)) {
+    const message = body.message;
+    if (Array.isArray(message)) return message.join(" ");
+    if (typeof message === "string") return message;
+    if (typeof body.error === "string") return body.error;
+  }
+  return `Request failed with status ${status}.`;
+}
+
+function extractCsvImportErrors(body: unknown): CsvImportError[] {
+  if (!isRecord(body) || !Array.isArray(body.errors)) return [];
+
+  return body.errors.filter((error): error is CsvImportError => {
+    return isRecord(error) && typeof error.row === "number" && typeof error.message === "string";
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
