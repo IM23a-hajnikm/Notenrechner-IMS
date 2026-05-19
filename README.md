@@ -4,16 +4,30 @@ Production-oriented Swiss grade calculator for students. The project is a clean 
 
 ## Current Status
 
-Foundation in progress.
+Student MVP is in production-polish mode.
 
-- Monorepo structure
-- Shared TypeScript calculation package
-- Prisma schema for users, subjects, terms, and grades
-- NestJS API with auth, calculation endpoints, and ownership-scoped student CRUD
-- Next.js web app with local demo mode and authenticated account mode
+- Monorepo structure with shared calculation logic, NestJS API, Next.js web app, and Prisma/PostgreSQL persistence
+- No-login demo mode with local browser storage
+- Authenticated account mode with user-owned subjects, terms, grades, and CSV import/export
 - Dedicated required-grade, BMS, and EFZ calculator pages
+- Prisma migration and local seed data for account-mode smoke testing
+- Deployment, environment, and smoke-test notes in [docs/deployment.md](docs/deployment.md)
 
-The first priority is correct Swiss grade calculation. UI polish and teacher features come later.
+Teacher/class features are intentionally out of scope for v1. The current polish backlog is tracked in GitHub issues.
+
+## Screenshots
+
+| Landing                                       | Demo mode                                         |
+| --------------------------------------------- | ------------------------------------------------- |
+| ![Landing page](docs/screenshots/landing.png) | ![Demo mode dashboard](docs/screenshots/demo.png) |
+
+| Account mode                                            | Required grade                                                    |
+| ------------------------------------------------------- | ----------------------------------------------------------------- |
+| ![Account mode dashboard](docs/screenshots/account.png) | ![Required grade calculator](docs/screenshots/required-grade.png) |
+
+| BMS calculator                              | EFZ calculator                              |
+| ------------------------------------------- | ------------------------------------------- |
+| ![BMS calculator](docs/screenshots/bms.png) | ![EFZ calculator](docs/screenshots/efz.png) |
 
 ## Architecture
 
@@ -33,18 +47,24 @@ docs/        Product and calculation notes
 - npm 10+
 - PostgreSQL 15+ for persistent account mode
 
-## Local Setup
+## First-Time Local Setup
+
+Install dependencies from the repository root:
 
 ```bash
 npm install
-cp .env.example .env
-npm run prisma:generate
-npm run dev
 ```
 
-For persistent account mode, run migrations against your local PostgreSQL database and load the fake sample account:
+Create a local environment file:
 
 ```bash
+cp .env.example .env
+```
+
+Make sure PostgreSQL is running and that `DATABASE_URL` in `.env` points at your local database. Then generate the Prisma client, apply migrations, and load the fake sample account:
+
+```bash
+npm run prisma:generate
 npm run prisma:migrate
 npm run prisma:seed
 ```
@@ -55,6 +75,23 @@ Seed login:
 - Password: `DemoStudent123!`
 
 The seed is safe to share and intentionally non-production. Re-running `npm run prisma:seed` upserts that account, resets its password, deletes that account's refresh tokens, subjects, terms, and grades, then recreates the deterministic BMS/EFZ sample data. Other accounts are not touched. For a full local database reset, run `npx prisma migrate reset`; Prisma will reapply migrations and run the configured seed unless you pass `--skip-seed`.
+
+Start the full local app:
+
+```bash
+npm run dev
+```
+
+Default local ports:
+
+- Web: `http://localhost:3000`
+- API: `http://localhost:3001`
+- Frontend API origin: `NEXT_PUBLIC_API_URL`
+- API CORS origin: `WEB_ORIGIN`
+
+Demo mode and calculator routes can run without a database. Account mode needs PostgreSQL, migrations, and working auth/cookie configuration.
+
+## Daily Commands
 
 Run the shared calculation tests:
 
@@ -68,6 +105,17 @@ Run all available checks:
 npm run typecheck
 npm test
 npm run build
+```
+
+Useful workspace commands:
+
+```bash
+npm run lint
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:seed
+npm run dev:api
+npm run dev:web
 ```
 
 ## Continuous Integration
@@ -109,6 +157,27 @@ Calculator routes:
 - `/calculators/required-grade`
 - `/calculators/bms`
 - `/calculators/efz`
+
+## Deployment
+
+No public production URL is committed in this repository yet. The supported deployment shape is:
+
+- Web: Vercel project rooted at `apps/web`
+- API: Render, Railway, or Fly service running `apps/api`
+- Database: managed PostgreSQL such as Neon, Supabase, Render Postgres, or Railway Postgres
+
+Use [docs/deployment.md](docs/deployment.md) for the complete deployment walkthrough, environment variable tables, cookie/CORS guidance, migration commands, and production smoke checklist.
+
+Deployment command summary:
+
+```bash
+npm ci
+npm run prisma:generate
+npm run build
+npm run prisma:deploy
+```
+
+Run `npm run prisma:deploy` only against staging or production databases that should receive committed migrations. Never run `prisma migrate reset` against production.
 
 ## API Surface
 
@@ -155,14 +224,85 @@ All user-owned backend resource methods are scoped by `userId`; reads and mutati
 
 `npm audit --omit=dev` currently reports a moderate PostCSS advisory through Next.js 16.2.6's nested `postcss@8.4.31` dependency. The direct project PostCSS dependency is patched, and npm does not currently offer a non-breaking Next.js fix.
 
-## Development Priorities
+## Operator Runbook
 
-1. Reliable shared calculation engine with unit tests
-2. Prisma schema and ownership-safe backend services
-3. Student CRUD for subjects, terms, and grades
-4. No-login demo mode
-5. Authenticated persistence
-6. BMS, EFZ, and required-grade screens
-7. CSV import/export
+Local bootstrap:
 
-Teacher/class features are intentionally out of scope for the MVP.
+1. Install with `npm install`.
+2. Copy `.env.example` to `.env`.
+3. Start PostgreSQL and confirm `DATABASE_URL`.
+4. Run `npm run prisma:generate`.
+5. Run `npm run prisma:migrate`.
+6. Run `npm run prisma:seed`.
+7. Run `npm run dev`.
+
+Reset local sample data:
+
+1. Run `npm run prisma:seed` to reset only `demo.student@example.test`.
+2. Run `npx prisma migrate reset` only when you want to wipe the local database and replay migrations.
+
+Pre-PR quality gate:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Production release smoke:
+
+1. Check `GET /health` on the API.
+2. Open the web app home, demo, login, register, and calculator routes.
+3. Register a disposable account.
+4. Create one subject, one term, and one grade.
+5. Refresh account mode and confirm saved records reload.
+6. Export CSV, then import a small valid CSV row.
+7. Check required-grade, BMS, and EFZ calculators with known values.
+8. Log out and confirm protected account data is not accessible.
+
+Screenshot refresh:
+
+1. Run a production web build with the target API origin.
+2. Start the web app locally.
+3. Capture `docs/screenshots/*.png` for `/`, `/demo`, `/account`, `/calculators/required-grade`, `/calculators/bms`, and `/calculators/efz`.
+4. Review the PNGs before committing so the README does not drift from the current UI.
+
+## Troubleshooting
+
+| Symptom                                        | Likely Cause                                                   | Fix                                                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `Environment variable not found: DATABASE_URL` | `.env` is missing or the shell did not load it.                | Copy `.env.example` to `.env` and rerun the Prisma command from the repo root.                     |
+| Prisma `P1000` or `P1001`                      | PostgreSQL credentials are wrong or the server is unreachable. | Check the database is running, then update `DATABASE_URL`.                                         |
+| `@prisma/client` has stale fields              | Prisma client was not regenerated after schema changes.        | Run `npm run prisma:generate`.                                                                     |
+| Account page asks for login after login        | Cookies are blocked or the API origin is wrong.                | Check `NEXT_PUBLIC_API_URL`, `WEB_ORIGIN`, `COOKIE_SAME_SITE`, HTTPS, and browser cookie settings. |
+| CORS errors in account mode                    | API `WEB_ORIGIN` does not exactly match the frontend origin.   | Use the exact scheme, host, and port, without a trailing slash.                                    |
+| `npm run dev` port conflict                    | Another process uses `3000` or `3001`.                         | Stop the process or set `API_PORT`/`PORT` for the API and adjust `NEXT_PUBLIC_API_URL`.            |
+| Next.js still calls an old API URL             | `NEXT_PUBLIC_API_URL` changed after build/start.               | Restart dev mode or rebuild the web app.                                                           |
+| Workspace command cannot find a package        | Command was run from the wrong directory.                      | Run root scripts from the repository root or use `npm -w @notenrechner/<workspace> ...`.           |
+
+## V1 Feature Checklist
+
+- [x] No-login demo mode
+- [x] User registration and login
+- [x] Subject, term, and grade management
+- [x] Weighted averages and rounded semester grades
+- [x] Required-grade calculator
+- [x] BMS calculator with diagnostics
+- [x] EFZ calculator with diagnostics
+- [x] CSV import/export for demo and account modes
+- [x] Ownership-scoped backend resource access
+- [x] Prisma migration and deterministic local seed account
+- [x] Deployment and operator documentation
+- [ ] End-to-end smoke tests for MVP workflows
+- [ ] Responsive, accessibility, and UI-state polish pass
+- [ ] Dark mode theme support
+- [ ] Unblocked dependency-security cleanup for upstream toolchain advisories
+
+## Known Limitations
+
+- No public production deployment URL is documented yet.
+- Teacher accounts, classes, invite codes, teacher-shared grades, PDF reports, Excel import, advanced analytics, and native/PWA wrappers are later features.
+- The seed account is local demo data only and should not be used in production.
+- The account-mode screenshot in this README uses local sample data; production data depends on the deployed database.
+- Moderate dependency advisories remain blocked on upstream Next.js/Vitest toolchain updates.
