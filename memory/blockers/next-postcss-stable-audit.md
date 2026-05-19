@@ -12,7 +12,11 @@ Vitest to 4.1.6 in the API and shared workspaces. The remaining `npm audit
 - `next@16.3.0-canary.22` declares `postcss@8.5.10`, but moving the app to a
   canary framework release is not an acceptable hardening fix for stable production
   dependencies.
-- npm overrides were tested and did not replace Next's nested PostCSS install.
+- npm overrides were retested on 2026-05-19. A minimal non-workspace install can
+  display `postcss@8.5.14 overridden`, but a workspace-shaped install leaves
+  `npm ls next postcss` failing with `ELSPROBLEMS` because `postcss@8.5.14` is
+  invalid against Next's exact `postcss@8.4.31` dependency. That override path is
+  not production-ready.
 
 Verification after the partial mitigation:
 
@@ -25,6 +29,8 @@ Verification after the partial mitigation:
 - `npm audit --audit-level=moderate` still fails on Next/PostCSS only.
 - On 2026-05-19, `npm view next@latest version dependencies.postcss` still returned
   `next@16.2.6` with `postcss@8.4.31`.
+- A temp workspace generated from the actual package manifests could make audit pass
+  with an override, but only by producing an invalid npm dependency graph.
 
 Issue #20 should remain blocked until a stable Next release includes a fixed PostCSS
 dependency or a safe vendor-supported override path becomes available.
