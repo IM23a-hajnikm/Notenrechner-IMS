@@ -155,7 +155,7 @@ export function CsvImportExportPanel({
   }
 
   return (
-    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
+    <section className="rounded-lg border border-black/10 bg-white p-5 shadow-soft" aria-busy={isBusy}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ink">{title}</h2>
@@ -244,9 +244,12 @@ export function CsvImportExportPanel({
           </p>
           <div className="mt-2 grid gap-2">
             {preview.drafts.slice(0, VISIBLE_PREVIEW_ROWS).map((draft, index) => (
-              <div key={`${draft.subjectId}-${draft.title}-${index}`} className="rounded-md bg-white/80 px-3 py-2">
-                <p className="font-semibold text-ink">{draft.title}</p>
-                <p className="text-xs text-black/60">
+              <div
+                key={`${draft.subjectId}-${draft.title}-${index}`}
+                className="min-w-0 rounded-md bg-white/80 px-3 py-2"
+              >
+                <p className="break-words font-semibold text-ink">{draft.title}</p>
+                <p className="break-words text-xs text-black/60">
                   {subjectLabels.get(draft.subjectId) ?? draft.subjectId} /{" "}
                   {draft.termId ? (termLabels.get(draft.termId) ?? draft.termId) : "kein Semester"} / Note {draft.value}{" "}
                   / Gewicht {draft.weight}
@@ -272,8 +275,11 @@ function StatusMessage({ status }: { status: PanelStatus }) {
         : "border-red-200 bg-red-50 text-red-700";
 
   return (
-    <div className={`mt-4 rounded-md border p-3 text-sm ${className}`}>
-      <p className="font-semibold">{status.message}</p>
+    <div
+      className={`mt-4 rounded-md border p-3 text-sm ${className}`}
+      role={status.kind === "error" ? "alert" : "status"}
+    >
+      <p className="break-words font-semibold">{status.message}</p>
       {status.errors?.length ? <ErrorList errors={status.errors} /> : null}
     </div>
   );
@@ -283,7 +289,7 @@ function ErrorList({ errors }: { errors: CsvImportError[] }) {
   return (
     <ul className="mt-2 grid gap-1">
       {errors.map((error, index) => (
-        <li key={`${error.row}-${error.message}-${index}`}>
+        <li key={`${error.row}-${error.message}-${index}`} className="break-words">
           Zeile {error.row}: {error.message}
         </li>
       ))}

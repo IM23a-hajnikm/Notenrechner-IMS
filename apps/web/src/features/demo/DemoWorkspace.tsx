@@ -909,20 +909,20 @@ function SubjectsPanel({
         {summaries.map((summary) => (
           <article key={summary.subject.id} className="rounded-md border border-black/10 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
                   <span
-                    className="h-3 w-3 rounded-full"
+                    className="h-3 w-3 shrink-0 rounded-full"
                     style={{ backgroundColor: summary.subject.color ?? DEFAULT_COLOR }}
                     aria-hidden
                   />
-                  <h3 className="font-semibold text-ink">{summary.subject.name}</h3>
+                  <h3 className="min-w-0 break-words font-semibold text-ink">{summary.subject.name}</h3>
                 </div>
                 <p className="mt-1 text-xs uppercase tracking-wide text-black/45">
                   {summary.subject.archived ? "Archiviert" : subjectTypeLabel(summary.subject.subjectType)}
                 </p>
               </div>
-              <p className="text-2xl font-semibold text-ink">
+              <p className="shrink-0 text-2xl font-semibold text-ink">
                 {summary.semesterGrade === null ? "-" : summary.semesterGrade.toFixed(1)}
               </p>
             </div>
@@ -943,7 +943,11 @@ function SubjectsPanel({
                 {summary.subject.archived ? "Aktivieren" : "Archivieren"}
               </button>
               <button
-                onClick={() => onDelete(summary.subject.id)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Fach "${summary.subject.name}" wirklich loeschen?`)) {
+                    onDelete(summary.subject.id);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
               >
                 Loeschen
@@ -977,13 +981,13 @@ function TermsPanel({
             key={term.id}
             className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 p-4 last:border-b-0"
           >
-            <div>
-              <p className="font-semibold text-ink">{term.name}</p>
-              <p className="text-sm text-black/60">
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-ink">{term.name}</p>
+              <p className="break-words text-sm text-black/60">
                 {formatDate(term.startDate) || "Offen"} bis {formatDate(term.endDate) || "offen"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
               <button
                 onClick={() => onEdit(term)}
                 className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
@@ -997,7 +1001,11 @@ function TermsPanel({
                 {term.isActive ? "Aktiv" : "Aktiv setzen"}
               </button>
               <button
-                onClick={() => onDelete(term.id)}
+                onClick={() => {
+                  if (confirmDestructiveAction(`Semester "${term.name}" wirklich loeschen?`)) {
+                    onDelete(term.id);
+                  }
+                }}
                 className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
               >
                 Loeschen
@@ -1180,23 +1188,23 @@ function GradesPanel({
           return (
             <div
               key={grade.id}
-              className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[1fr_auto_auto]"
+              className="grid gap-3 border-b border-black/10 p-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto_auto]"
             >
-              <div>
-                <p className="font-semibold text-ink">{grade.title}</p>
-                <p className="text-sm text-black/60">
+              <div className="min-w-0">
+                <p className="break-words font-semibold text-ink">{grade.title}</p>
+                <p className="break-words text-sm text-black/60">
                   {subject?.name ?? "Geloeschtes Fach"} / {term?.name ?? "kein Semester"} / {gradeTypeLabel(grade.type)}{" "}
                   / Gewicht {grade.weight}
                 </p>
                 {grade.date || grade.notes ? (
-                  <p className="mt-1 text-xs text-black/45">
+                  <p className="mt-1 break-words text-xs text-black/45">
                     {formatDate(grade.date) ?? "Kein Datum"}
                     {grade.notes ? ` - ${grade.notes}` : ""}
                   </p>
                 ) : null}
               </div>
-              <p className="text-2xl font-semibold text-ink">{grade.value.toFixed(2)}</p>
-              <div className="flex flex-wrap gap-2 md:justify-end">
+              <p className="shrink-0 text-2xl font-semibold text-ink">{grade.value.toFixed(2)}</p>
+              <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
                 <button
                   onClick={() => onEdit(grade)}
                   className="rounded-md border border-black/15 px-3 py-1 text-sm font-semibold text-black/70 hover:border-black/30"
@@ -1204,7 +1212,11 @@ function GradesPanel({
                   Bearbeiten
                 </button>
                 <button
-                  onClick={() => onDelete(grade.id)}
+                  onClick={() => {
+                    if (confirmDestructiveAction(`Note "${grade.title}" wirklich loeschen?`)) {
+                      onDelete(grade.id);
+                    }
+                  }}
                   className="rounded-md border border-red-200 px-3 py-1 text-sm font-semibold text-red-700 hover:border-red-300"
                 >
                   Loeschen
@@ -1226,9 +1238,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <article className="rounded-lg border border-black/10 bg-white p-5 shadow-soft">
       <p className="text-sm text-black/60">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold text-ink">{value}</p>
+      <p className="mt-2 break-words text-2xl font-semibold leading-tight text-ink">{value}</p>
     </article>
   );
+}
+
+function confirmDestructiveAction(message: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.confirm(message);
 }
 
 type SubjectSummary = {

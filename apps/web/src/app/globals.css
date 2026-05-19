@@ -24,6 +24,19 @@ input,
 select,
 textarea {
   font: inherit;
+  max-width: 100%;
+  min-width: 0;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+[aria-busy="true"] {
+  cursor: progress;
 }
 
 button:focus-visible,
