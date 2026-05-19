@@ -82,7 +82,7 @@ npm run prisma:deploy
 
 `npm run prisma:deploy` runs `prisma migrate deploy`, which applies pending migrations in production and staging environments.
 
-Current blocker: the repository has a Prisma schema but no committed `prisma/migrations` history yet. Track that separately in issue #23 before relying on automated production migrations.
+The repository includes an initial Prisma migration in `prisma/migrations`. Review future migration diffs before deploys and use `npm run prisma:deploy` for staging and production.
 
 Rollback expectations:
 
