@@ -114,6 +114,7 @@ npm run lint
 npm run prisma:generate
 npm run prisma:migrate
 npm run prisma:seed
+npm run test:e2e
 npm run dev:api
 npm run dev:web
 ```
@@ -151,6 +152,8 @@ The MVP must support two modes:
 Local frontend API calls use `NEXT_PUBLIC_API_URL`; by default this points to `http://localhost:3001`.
 
 Production deployment variables, CORS, cookie settings, migrations, and smoke tests are documented in [docs/deployment.md](docs/deployment.md).
+
+Browser E2E setup and CI strategy are documented in [docs/e2e.md](docs/e2e.md).
 
 Calculator routes:
 
@@ -247,6 +250,7 @@ Pre-PR quality gate:
 npm run lint
 npm run typecheck
 npm test
+npm run test:e2e
 npm run build
 ```
 
@@ -280,6 +284,7 @@ Screenshot refresh:
 | `npm run dev` port conflict                    | Another process uses `3000` or `3001`.                         | Stop the process or set `API_PORT`/`PORT` for the API and adjust `NEXT_PUBLIC_API_URL`.            |
 | Next.js still calls an old API URL             | `NEXT_PUBLIC_API_URL` changed after build/start.               | Restart dev mode or rebuild the web app.                                                           |
 | Workspace command cannot find a package        | Command was run from the wrong directory.                      | Run root scripts from the repository root or use `npm -w @notenrechner/<workspace> ...`.           |
+| Playwright cannot find Chrome                  | The default E2E browser channel is not installed.              | Run `npx playwright install chromium`, then `PLAYWRIGHT_BROWSER_CHANNEL=bundled npm run test:e2e`. |
 
 ## V1 Feature Checklist
 
@@ -294,7 +299,7 @@ Screenshot refresh:
 - [x] Ownership-scoped backend resource access
 - [x] Prisma migration and deterministic local seed account
 - [x] Deployment and operator documentation
-- [ ] End-to-end smoke tests for MVP workflows
+- [x] Local Playwright end-to-end smoke tests for MVP workflows
 - [ ] Responsive, accessibility, and UI-state polish pass
 - [ ] Dark mode theme support
 - [ ] Unblocked dependency-security cleanup for upstream toolchain advisories
