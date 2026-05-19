@@ -13,6 +13,7 @@ import {
   fieldErrorsFromZod,
   inputClassName,
 } from "../validation/form-validation";
+import { ThemeToggle } from "../theme/ThemeToggle";
 import { loginAccount, registerAccount } from "./api-client";
 
 type AuthField = "email" | "password" | "name";
@@ -59,9 +60,12 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   return (
     <main className="min-h-screen bg-[#f6f8f7]">
       <section className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-5 py-10">
-        <Link href="/" className="text-sm font-semibold uppercase tracking-wide text-alpine">
-          Notenrechner v2
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="text-sm font-semibold uppercase tracking-wide text-alpine">
+            Notenrechner v2
+          </Link>
+          <ThemeToggle className="px-3 py-1.5" />
+        </div>
         <div className="mt-6 rounded-lg border border-black/10 bg-white p-6 shadow-soft">
           <h1 className="text-2xl font-semibold text-ink">{isRegister ? "Account erstellen" : "Einloggen"}</h1>
           <p className="mt-2 text-sm leading-6 text-black/60">

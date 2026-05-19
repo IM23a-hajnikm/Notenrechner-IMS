@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { calculateBmsResult, calculateEfzResult, calculateSemesterGrade } from "@notenrechner/shared";
 
+import { ThemeToggle } from "../features/theme/ThemeToggle";
+
 const demoSemesterGrade = calculateSemesterGrade([
   { value: 5, weight: 1 },
   { value: 4.25, weight: 2 },
@@ -24,12 +26,13 @@ export default function HomePage() {
   return (
     <main className="min-h-screen">
       <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-6 sm:px-8">
-        <nav className="flex items-center justify-between border-b border-black/10 pb-4">
+        <nav className="flex flex-wrap items-center justify-between gap-4 border-b border-black/10 pb-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-alpine">Notenrechner v2</p>
             <p className="text-sm text-black/60">Swiss grade calculator for students</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <ThemeToggle />
             <Link
               href="/account/login"
               className="rounded-md border border-black/15 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-black/30"
