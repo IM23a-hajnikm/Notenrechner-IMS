@@ -4,7 +4,7 @@ Production-oriented Swiss grade calculator for students. The project is a clean 
 
 ## Current Status
 
-Student MVP is feature-complete for v1. Remaining production readiness work is limited to operator deployment and the upstream Next.js/PostCSS advisory tracked in GitHub #20.
+Student MVP is feature-complete for v1. Remaining production work is operator deployment with real hosting, secrets, and database credentials.
 
 - Monorepo structure with shared calculation logic, NestJS API, Next.js web app, and Prisma/PostgreSQL persistence
 - No-login demo mode with local browser storage
@@ -226,7 +226,7 @@ Calculations:
 
 All user-owned backend resource methods are scoped by `userId`; reads and mutations use the authenticated user id rather than trusting a client-provided owner id.
 
-`npm audit --omit=dev` currently reports a moderate PostCSS advisory through Next.js 16.2.6's nested `postcss@8.4.31` dependency. The direct project PostCSS dependency is patched, and npm does not currently offer a non-breaking Next.js fix.
+`npm audit --audit-level=moderate` is expected to pass. Next.js 16.2.6 still declares `postcss@8.4.31`, so the root npm `overrides` section and lockfile resolve Next's PostCSS edge to `postcss@8.5.14` until stable Next ships the patched dependency directly.
 
 ## Operator Runbook
 
@@ -303,7 +303,7 @@ Screenshot refresh:
 - [x] Local Playwright end-to-end smoke tests for MVP workflows
 - [x] Responsive, accessibility, and UI-state polish pass
 - [x] Dark mode theme support
-- [ ] Stable Next.js/PostCSS dependency-security cleanup after upstream fix
+- [x] Stable Next.js/PostCSS dependency-security cleanup
 
 ## Known Limitations
 
@@ -311,4 +311,4 @@ Screenshot refresh:
 - Teacher accounts, classes, invite codes, teacher-shared grades, PDF reports, Excel import, advanced analytics, and native/PWA wrappers are later features.
 - The seed account is local demo data only and should not be used in production.
 - The account-mode screenshot in this README uses local sample data; production data depends on the deployed database.
-- One moderate dependency advisory remains blocked on a stable upstream Next.js release that uses a patched nested PostCSS dependency.
+- The temporary Next.js/PostCSS npm override should be removed after stable Next ships a patched direct dependency.
