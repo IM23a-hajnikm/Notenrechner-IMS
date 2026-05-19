@@ -42,6 +42,20 @@ npm run prisma:generate
 npm run dev
 ```
 
+For persistent account mode, run migrations against your local PostgreSQL database and load the fake sample account:
+
+```bash
+npm run prisma:migrate
+npm run prisma:seed
+```
+
+Seed login:
+
+- Email: `demo.student@example.test`
+- Password: `DemoStudent123!`
+
+The seed is safe to share and intentionally non-production. Re-running `npm run prisma:seed` upserts that account, resets its password, deletes that account's refresh tokens, subjects, terms, and grades, then recreates the deterministic BMS/EFZ sample data. Other accounts are not touched. For a full local database reset, run `npx prisma migrate reset`; Prisma will reapply migrations and run the configured seed unless you pass `--skip-seed`.
+
 Run the shared calculation tests:
 
 ```bash
