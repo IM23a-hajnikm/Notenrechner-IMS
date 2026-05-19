@@ -10,6 +10,7 @@ import {
   AccountSnapshot,
   AccountSubject,
   AccountTerm,
+  CsvImportResult,
   GradeType,
   SubjectType,
   createGrade,
@@ -18,6 +19,8 @@ import {
   deleteGrade,
   deleteSubject,
   deleteTerm,
+  exportAccountCsv,
+  importAccountGradesCsv,
   loadAccountSnapshot,
   logoutAccount,
   updateGrade,
@@ -27,6 +30,7 @@ import {
 import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequiredGradePlanner";
 import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
+import { CsvImportExportPanel } from "../import-export/CsvImportExportPanel";
 import {
   FieldError,
   FieldErrors,
@@ -206,6 +210,23 @@ export function AccountDashboard() {
     }
   }
 
+  async function importCsv(csv: string): Promise<CsvImportResult> {
+    setError(null);
+    setIsMutating(true);
+
+    try {
+      const result = await importAccountGradesCsv(csv);
+      await refresh();
+      return result;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "CSV konnte nicht importiert werden.";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
   async function logout() {
     setIsMutating(true);
     try {
@@ -308,6 +329,8 @@ export function AccountDashboard() {
             disabled={isMutating}
             snapshot={snapshot}
             onCreateGrade={(input) => mutate(() => createGrade(input))}
+            onExportCsv={exportAccountCsv}
+            onImportCsv={importCsv}
           />
         ) : null}
 
@@ -402,10 +425,14 @@ function DashboardView({
   disabled,
   snapshot,
   onCreateGrade,
+  onExportCsv,
+  onImportCsv,
 }: {
   disabled: boolean;
   snapshot: AccountSnapshot;
   onCreateGrade: (input: CreateGradeInput) => Promise<boolean>;
+  onExportCsv: () => Promise<string>;
+  onImportCsv: (csv: string) => Promise<CsvImportResult>;
 }) {
   const certificationStatus = deriveSavedCertificationStatus(snapshot.subjects, snapshot.grades);
 
@@ -425,6 +452,16 @@ function DashboardView({
         </div>
         <div className="grid gap-4">
           <RequiredGradeShortcut snapshot={snapshot} />
+          <CsvImportExportPanel
+            description="Exportiert Account-Daten ueber die API und importiert neue Noten persistent."
+            disabled={disabled}
+            filename="notenrechner-account-export.csv"
+            subjects={snapshot.subjects}
+            terms={snapshot.terms}
+            title="CSV Import/Export"
+            onExport={onExportCsv}
+            onImport={(csv) => onImportCsv(csv)}
+          />
           <RecentGrades grades={snapshot.grades} />
         </div>
       </section>
