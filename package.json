@@ -21,8 +21,12 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "prisma db seed",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm -w @notenrechner/shared run build && npm run typecheck --workspaces --if-present"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
