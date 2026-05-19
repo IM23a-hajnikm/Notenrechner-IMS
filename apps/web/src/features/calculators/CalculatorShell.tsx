@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { ThemeToggle } from "../theme/ThemeToggle";
+
 const links = [
   { href: "/calculators/required-grade", label: "Benoetigte Note" },
   { href: "/calculators/bms", label: "BMS" },
@@ -20,6 +22,7 @@ export function CalculatorShell({ children, title, eyebrow }: { children: ReactN
             <h1 className="mt-1 text-2xl font-semibold text-ink">{title}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
+            <ThemeToggle />
             {links.map((link) => (
               <Link
                 key={link.href}

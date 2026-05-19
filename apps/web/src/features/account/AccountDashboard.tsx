@@ -31,6 +31,7 @@ import { ContextualRequiredGradePlanner } from "../calculators/ContextualRequire
 import { CertificationInputGuide, CertificationStatusCards } from "../certification/CertificationStatusCards";
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 import { CsvImportExportPanel } from "../import-export/CsvImportExportPanel";
+import { ThemeToggle } from "../theme/ThemeToggle";
 import {
   FieldError,
   FieldErrors,
@@ -269,9 +270,12 @@ export function AccountDashboard() {
     return (
       <main className="min-h-screen bg-[#f6f8f7]">
         <div className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-5">
-          <Link href="/" className="text-sm font-semibold uppercase tracking-wide text-alpine">
-            Notenrechner v2
-          </Link>
+          <div className="flex items-center justify-between gap-3">
+            <Link href="/" className="text-sm font-semibold uppercase tracking-wide text-alpine">
+              Notenrechner v2
+            </Link>
+            <ThemeToggle className="px-3 py-1.5" />
+          </div>
           <section className="mt-6 rounded-lg border border-black/10 bg-white p-6 shadow-soft">
             <h1 className="text-2xl font-semibold text-ink">Einloggen erforderlich</h1>
             <p className="mt-2 text-sm leading-6 text-black/60" role={error ? "alert" : "status"}>
@@ -301,6 +305,7 @@ export function AccountDashboard() {
             <p className="break-all text-sm text-black/60">{snapshot.user.email}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <ThemeToggle />
             <Link
               href="/demo"
               className="rounded-md border border-black/15 bg-white px-4 py-2 text-sm font-semibold text-ink hover:border-black/30"

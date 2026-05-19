@@ -9,6 +9,7 @@ import { CertificationStatusCards } from "../certification/CertificationStatusCa
 import { deriveSavedCertificationStatus } from "../certification/saved-data-status";
 import { CsvImportExportPanel } from "../import-export/CsvImportExportPanel";
 import { CsvImportPreview, buildGradeCsv } from "../import-export/grade-csv";
+import { ThemeToggle } from "../theme/ThemeToggle";
 import {
   FieldError,
   FieldErrors,
@@ -441,6 +442,7 @@ export function DemoWorkspace() {
             <h1 className="mt-1 text-2xl font-semibold text-ink">Demo-Modus</h1>
           </div>
           <div className="flex flex-wrap gap-2">
+            <ThemeToggle />
             <button
               onClick={resetDemo}
               className={`rounded-md border px-4 py-2 text-sm font-semibold ${
